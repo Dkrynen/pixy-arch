@@ -78,6 +78,16 @@ function makePixyHid(overrides: Partial<UsePixyHidResult> = {}): UsePixyHidResul
     recenterPtz: vi.fn(),
     savePtzPreset: vi.fn(),
     loadPtzPreset: vi.fn(),
+    clearPtzPreset: vi.fn(),
+    capturePowerOnDefault: vi.fn(),
+    disablePowerOnDefault: vi.fn(),
+    goToDefault: vi.fn(),
+    setDenoise: vi.fn(),
+    setWbLock: vi.fn(),
+    setEvLock: vi.fn(),
+    setFocusLock: vi.fn(),
+    setRemotePairing: vi.fn(),
+    setMotorSpeed: vi.fn(),
     ...overrides
   };
 }
@@ -90,6 +100,9 @@ function makeAudio(overrides: Partial<UseAudioResult> = {}): UseAudioResult {
       name: "EMEET PIXY",
       muted: false,
       volume: 10,
+      source_node: null,
+      default_source: null,
+      monitor_running: false,
       reason: null
     },
     isLoading: false,
@@ -97,6 +110,9 @@ function makeAudio(overrides: Partial<UseAudioResult> = {}): UseAudioResult {
     error: null,
     refresh: vi.fn(),
     setMuted: vi.fn().mockResolvedValue(undefined),
+    setVolume: vi.fn(),
+    setDefaultSource: vi.fn(),
+    setMonitorRunning: vi.fn(),
     ...overrides
   };
 }

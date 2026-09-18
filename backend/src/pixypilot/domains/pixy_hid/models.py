@@ -23,6 +23,25 @@ PixyHidQueryName = Literal[
     "mirror_horizontal_state",
     "mirror_vertical_state",
     "auto_rotate_state",
+    "serial_number",
+    "firmware_isp",
+    "firmware_ai",
+    "firmware_mcu",
+    "serial_csk",
+    "power_on_default_state",
+    "preset_1_state",
+    "preset_2_state",
+    "preset_3_state",
+    "meter_mode",
+    "wb_lock_state",
+    "ev_lock_state",
+    "focus_lock_state",
+    "denoise_state",
+    "remote_pairing_state",
+    "motor_pos_pan",
+    "motor_pos_tilt",
+    "motor_speed_pan",
+    "motor_speed_tilt",
 ]
 
 
@@ -122,12 +141,22 @@ class PtzRelativeRequest(BaseModel):
 
 
 class PtzAbsoluteRequest(BaseModel):
-    pan: float = Field(ge=-90.0, le=90.0)
+    pan: float = Field(ge=-150.0, le=150.0)
     tilt: float = Field(ge=-90.0, le=90.0)
 
 
 class PtzPresetSlotRequest(BaseModel):
     slot: int = Field(ge=1, le=3)
+
+
+class EvLockRequest(BaseModel):
+    enabled: bool
+    exposure: int = Field(default=0, ge=0, le=0xFFFFFFFF)
+
+
+class MotorSpeedRequest(BaseModel):
+    axis: int = Field(ge=1, le=2)
+    degrees_per_second: float = Field(gt=0.0, le=360.0)
 
 
 class FocusMeteringRequest(BaseModel):

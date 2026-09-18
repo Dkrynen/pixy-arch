@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { fetchAudioStatus, setAudioMute } from "../lib/apiClient";
+import {
+  fetchAudioStatus,
+  setAudioDefaultSource,
+  setAudioMute,
+  setAudioVolume,
+  startAudioMonitor,
+  stopAudioMonitor
+} from "../lib/apiClient";
 import type { AudioStatus } from "../types/api";
 
 export type UseAudioResult = {
@@ -10,6 +17,9 @@ export type UseAudioResult = {
   error: string | null;
   refresh: () => Promise<void>;
   setMuted: (muted: boolean) => Promise<void>;
+  setVolume: (volume: number) => Promise<void>;
+  setDefaultSource: () => Promise<void>;
+  setMonitorRunning: (running: boolean) => Promise<void>;
 };
 
 export function useAudio(): UseAudioResult {
@@ -34,20 +44,64 @@ export function useAudio(): UseAudioResult {
     void refresh();
   }, [refresh]);
 
-  const setMuted = useCallback(async (muted: boolean) => {
-    setPending(true);
-    setError(null);
-    const previousStatus = status;
-    setStatus((current) => (current ? { ...current, muted } : current));
-    try {
-      await setAudioMute(muted);
-    } catch (err) {
-      setStatus(previousStatus);
-      setError(err instanceof Error ? err.message : "Unable to set PIXY mute");
-    } finally {
-      setPending(false);
-    }
-  }, [status]);
+  const run = useCallback(
+    async (action: () => Promise<unknown>, rollback?: () => void) => {
+      setPending(true);
+      setError(null);
+      try {
+        await action();
+      } catch (err) {
+        rollback?.();
+        setError(err instanceof Error ? err.message : "Unable to run PIXY audio command");
+      } finally {
+        setPending(false);
+      }
+    },
+    []
+  );
 
-  return { status, isLoading, pending, error, refresh, setMuted };
+  const setMuted = useCallback(
+    async (muted: boolean) => {
+      const previousStatus = status;
+      setStatus((current) => (current ? { ...current, muted } : current));
+      await run(() => setAudioMute(muted), () => setStatus(previousStatus));
+    },
+    [status, run]
+  );
+
+  const setVolume = useCallback(
+    async (volume: number) => {
+      const previousStatus = status;
+      setStatus((current) => (current ? { ...current, volume } : current));
+      await run(() => setAudioVolume(volume), () => setStatus(previousStatus));
+    },
+    [status, run]
+  );
+
+  const setDefaultSource = useCallback(async () => {
+    await run(async () => {
+      await setAudioDefaultSource();
+      await refresh();
+    });
+  }, [run, refresh]);
+
+  const setMonitorRunning = useCallback(
+    async (running: boolean) => {
+      const previousStatus = status;
+      setStatus((current) => (current ? { ...current, monitor_running: running } : current));
+      await run(
+        async () => {
+          if (running) {
+            await startAudioMonitor();
+          } else {
+            await stopAudioMonitor();
+          }
+        },
+        () => setStatus(previousStatus)
+      );
+    },
+    [status, run]
+  );
+
+  return { status, isLoading, pending, error, refresh, setMuted, setVolume, setDefaultSource, setMonitorRunning };
 }

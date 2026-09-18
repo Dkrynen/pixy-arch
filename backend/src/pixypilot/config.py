@@ -37,6 +37,22 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "path": None,
         "report_gap_ms": DEFAULT_HID_REPORT_GAP_MS,
     },
+    "virtualcam": {
+        "device": None,
+        "label": "PixyPilot Virtual",
+    },
+    "automation": {
+        "enabled": True,
+        "video_device": "/dev/video0",
+        "on_open": "tracking",
+        "on_close": "privacy",
+        "grace_seconds": 8,
+        "poll_seconds": 1,
+        "exclude_processes": ["wireplumber"],
+    },
+    "firmware": {
+        "manifest_url": "https://www.emeet.ai/device_software/EMEET_STUDIO/pixy/device_upgrade_pixy.json",
+    },
     "safety": {
         "start_in_privacy": True,
     },
@@ -122,6 +138,31 @@ def hid_report_gap_seconds(config_path: Path | None = None) -> float:
 
 def start_in_privacy(config_path: Path | None = None) -> bool:
     return _bool_at(["safety", "start_in_privacy"], True, config_path)
+
+
+def virtualcam_device(config_path: Path | None = None) -> Path | None:
+    raw_value = _value_at(["virtualcam", "device"], config_path)
+    if raw_value is None or raw_value == "":
+        return None
+    return _resolve_path(Path(str(raw_value)), config_path)
+
+
+def virtualcam_label(config_path: Path | None = None) -> str:
+    return _string_at(["virtualcam", "label"], "PixyPilot Virtual", config_path)
+
+
+def automation_config(config_path: Path | None = None) -> dict[str, Any]:
+    raw_value = _value_at(["automation"], config_path)
+    return raw_value if isinstance(raw_value, dict) else {}
+
+
+def firmware_manifest_url(config_path: Path | None = None) -> str | None:
+    raw_value = _string_at(
+        ["firmware", "manifest_url"],
+        "https://www.emeet.ai/device_software/EMEET_STUDIO/pixy/device_upgrade_pixy.json",
+        config_path,
+    )
+    return raw_value or None
 
 
 def reset_config_cache_for_tests() -> None:

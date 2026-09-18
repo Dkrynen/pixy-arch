@@ -230,6 +230,81 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
               </button>
             ))}
           </div>
+          {micAvailable && (
+            <>
+              <div className="privacy-mode-row">
+                <span>Gain {audio.status?.volume ?? "—"}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={audio.status?.volume ?? 0}
+                  disabled={audio.pending}
+                  onChange={(event) => void audio.setVolume(Number(event.target.value))}
+                />
+              </div>
+              <div className="mic-mute-row">
+                <div>
+                  <strong>Monitor</strong>
+                  <small>{audio.status?.monitor_running ? "Listening via PipeWire loopback" : "Hear the PIXY mic locally"}</small>
+                </div>
+                <button
+                  className={`toggle-switch ${audio.status?.monitor_running ? "is-on" : ""}`}
+                  disabled={audio.pending}
+                  aria-pressed={audio.status?.monitor_running ?? false}
+                  aria-label="Mic monitor"
+                  onClick={() => void audio.setMonitorRunning(!(audio.status?.monitor_running ?? false))}
+                >
+                  <span />
+                </button>
+              </div>
+              {audio.status?.default_source === false && (
+                <button className="primary-action" disabled={audio.pending} onClick={() => void audio.setDefaultSource()}>
+                  Set as default microphone
+                </button>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="smart-control">
+          <div className="smart-label">
+            <Shield size={16} />
+            <span>Locks &amp; Imaging</span>
+          </div>
+          <div className="segmented">
+            <button disabled={disabled} onClick={() => void pixyHid.setWbLock(true)}>WB lock</button>
+            <button disabled={disabled} onClick={() => void pixyHid.setWbLock(false)}>WB unlock</button>
+          </div>
+          <div className="segmented">
+            <button disabled={disabled} onClick={() => void pixyHid.setEvLock(true)}>EV lock</button>
+            <button disabled={disabled} onClick={() => void pixyHid.setEvLock(false)}>EV unlock</button>
+          </div>
+          <div className="segmented">
+            <button disabled={disabled} onClick={() => void pixyHid.setFocusLock(true)}>Focus lock</button>
+            <button disabled={disabled} onClick={() => void pixyHid.setFocusLock(false)}>Focus unlock</button>
+          </div>
+          <div className="segmented">
+            <button disabled={disabled} onClick={() => void pixyHid.setDenoise(true)}>Denoise on</button>
+            <button disabled={disabled} onClick={() => void pixyHid.setDenoise(false)}>Denoise off</button>
+          </div>
+        </div>
+
+        <div className="smart-control">
+          <div className="smart-label">
+            <Shield size={16} />
+            <span>Power-On Position</span>
+          </div>
+          <div className="segmented">
+            <button disabled={disabled} onClick={() => void pixyHid.capturePowerOnDefault()}>Save current</button>
+            <button disabled={disabled} onClick={() => void pixyHid.disablePowerOnDefault()}>Disable</button>
+            <button disabled={disabled} onClick={() => void pixyHid.goToDefault()}>Go to</button>
+          </div>
+          <div className="segmented">
+            <button disabled={disabled} onClick={() => void pixyHid.setRemotePairing(true)}>Pair remote</button>
+            <button disabled={disabled} onClick={() => void pixyHid.setRemotePairing(false)}>Unpair</button>
+          </div>
         </div>
       </div>
 

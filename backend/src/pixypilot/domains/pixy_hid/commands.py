@@ -180,21 +180,29 @@ def ptz_direction_reports(direction: PtzDirection) -> list[bytes]:
 def ptz_relative_reports(direction: PtzDirection, degrees: float = 3.0) -> list[bytes]:
     if degrees <= 0.0 or degrees > 30.0:
         raise ValueError("PTZ relative degrees must be in range 0..30")
-    axis, sign = _ptz_motor_axis_and_sign(direction)
-    value = sign * degrees
+    axis, delta = PTZ_DIRECTION_VALUES[direction]
+    value = delta * degrees
     return [
         build_report([0x09, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, TRACKING_VALUES["off"]]),
-        build_report([0x09, 0x03, 0x01, 0x19, 0x00, 0x05, 0x00, 0x05, axis, *struct.pack("<f", value)]),
+        build_report([0x09, 0x63, 0x01, 0x19, 0x00, 0x05, 0x00, 0x05, axis, *struct.pack("<f", value)]),
+    ]
+
+
+def motor_absolute_reports(axis: int, degrees: float) -> list[bytes]:
+    if axis not in (0x01, 0x02):
+        raise ValueError("motor axis must be 0x01 (pan) or 0x02 (tilt)")
+    return [
+        build_report([0x09, 0x63, 0x01, 0x00, 0x00, 0x05, 0x00, 0x05, axis, *struct.pack("<f", degrees)]),
     ]
 
 
 def ptz_absolute_reports(pan: float, tilt: float) -> list[bytes]:
-    if not -90.0 <= pan <= 90.0 or not -90.0 <= tilt <= 90.0:
-        raise ValueError("PTZ absolute pan and tilt must be in range -90..90")
+    if not -150.0 <= pan <= 150.0 or not -90.0 <= tilt <= 90.0:
+        raise ValueError("PTZ absolute pan must be in range -150..150 and tilt -90..90")
     return [
         build_report([0x09, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, TRACKING_VALUES["off"]]),
-        build_report([0x09, 0x03, 0x01, 0x18, 0x00, 0x05, 0x00, 0x05, 0x01, *struct.pack("<f", pan)]),
-        build_report([0x09, 0x03, 0x01, 0x18, 0x00, 0x05, 0x00, 0x05, 0x02, *struct.pack("<f", tilt)]),
+        *motor_absolute_reports(0x01, pan),
+        *motor_absolute_reports(0x02, tilt),
     ]
 
 
@@ -226,18 +234,150 @@ def ptz_preset_load_reports(slot: int) -> list[bytes]:
     ]
 
 
+def ptz_preset_clear_reports(slot: int) -> list[bytes]:
+    if slot < 1 or slot > 3:
+        raise ValueError("PTZ preset slot must be in range 1..3")
+    return [
+        build_report([0x09, 0x03, 0x01, 0x15, 0x00, 0x02, 0x00, 0x02, slot, 0x00]),
+        build_report([0x09, 0x03, 0x01, 0x16, 0x00, 0x01, 0x00, 0x01, slot]),
+    ]
+
+
+def ptz_preset_query_report(slot: int) -> bytes:
+    if slot < 1 or slot > 3:
+        raise ValueError("PTZ preset slot must be in range 1..3")
+    return build_report([0x09, 0x03, 0x01, 0x16, 0x00, 0x01, 0x00, 0x01, slot])
+
+
+def power_on_default_capture_reports() -> list[bytes]:
+    return [
+        build_report([0x09, 0x03, 0x01, 0x13, 0x00, 0x01, 0x00, 0x01, 0x01]),
+        build_report([0x09, 0x03, 0x01, 0x14]),
+    ]
+
+
+def power_on_default_disable_reports() -> list[bytes]:
+    return [
+        build_report([0x09, 0x03, 0x01, 0x13, 0x00, 0x01, 0x00, 0x01, 0x00]),
+        build_report([0x09, 0x03, 0x01, 0x14]),
+    ]
+
+
+def power_on_default_query_report() -> bytes:
+    return build_report([0x09, 0x03, 0x01, 0x14])
+
+
+def go_to_default_position_reports() -> list[bytes]:
+    return [build_report([0x09, 0x03, 0x01, 0x17])]
+
+
+def motor_position_query_report(axis: int) -> bytes:
+    if axis not in (0x01, 0x02):
+        raise ValueError("motor axis must be 0x01 (pan) or 0x02 (tilt)")
+    return build_report([0x09, 0x63, 0x01, 0x01, 0x00, 0x01, 0x00, 0x01, axis])
+
+
+def motor_speed_reports(axis: int, degrees_per_second: float) -> list[bytes]:
+    if axis not in (0x01, 0x02):
+        raise ValueError("motor axis must be 0x01 (pan) or 0x02 (tilt)")
+    return [
+        build_report([0x09, 0x63, 0x01, 0x02, 0x00, 0x05, 0x00, 0x05, axis, *struct.pack("<f", degrees_per_second)]),
+        build_report([0x09, 0x63, 0x01, 0x03, 0x00, 0x01, 0x00, 0x01, axis]),
+    ]
+
+
+def motor_speed_query_report(axis: int) -> bytes:
+    if axis not in (0x01, 0x02):
+        raise ValueError("motor axis must be 0x01 (pan) or 0x02 (tilt)")
+    return build_report([0x09, 0x63, 0x01, 0x03, 0x00, 0x01, 0x00, 0x01, axis])
+
+
+def serial_number_query_report() -> bytes:
+    return build_report([0x09, 0x01, 0x00, 0x03])
+
+
+def firmware_version_query_report() -> bytes:
+    return build_report([0x09, 0x01, 0x00, 0x04])
+
+
+def subdevice_version_query_report(subdevice: int) -> bytes:
+    if subdevice not in (0x01, 0x02, 0x03):
+        raise ValueError("subdevice must be 1, 2 (CSK AI SoC), or 3 (motor MCU)")
+    return build_report([0x09, subdevice << 5 | 0x01, 0x00, 0x04])
+
+
+def subdevice_serial_query_report(subdevice: int) -> bytes:
+    if subdevice not in (0x01, 0x02):
+        raise ValueError("subdevice must be 1 or 2 (CSK AI SoC)")
+    return build_report([0x09, subdevice << 5 | 0x01, 0x00, 0x03])
+
+
+def denoise_reports(enabled: bool) -> list[bytes]:
+    value = 0x01 if enabled else 0x00
+    return [
+        build_report([0x09, 0x45, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, value]),
+        build_report([0x09, 0x45, 0x00, 0x01]),
+    ]
+
+
+def denoise_query_report() -> bytes:
+    return build_report([0x09, 0x45, 0x00, 0x01])
+
+
+def wb_lock_reports(enabled: bool) -> list[bytes]:
+    value = 0x01 if enabled else 0x00
+    return [
+        build_report([0x09, 0x04, 0x00, 0x09, 0x00, 0x01, 0x00, 0x01, value]),
+        build_report([0x09, 0x04, 0x00, 0x0A]),
+    ]
+
+
+def wb_lock_query_report() -> bytes:
+    return build_report([0x09, 0x04, 0x00, 0x0A])
+
+
+def ev_lock_reports(enabled: bool, exposure: int = 0) -> list[bytes]:
+    value = 0x01 if enabled else 0x00
+    return [
+        build_report([0x09, 0x04, 0x00, 0x0B, 0x00, 0x05, 0x00, 0x05, value, *exposure.to_bytes(4, "little")]),
+        build_report([0x09, 0x04, 0x00, 0x0C]),
+    ]
+
+
+def ev_lock_query_report() -> bytes:
+    return build_report([0x09, 0x04, 0x00, 0x0C])
+
+
+def focus_lock_reports(enabled: bool) -> list[bytes]:
+    value = 0x01 if enabled else 0x00
+    return [
+        build_report([0x09, 0x04, 0x00, 0x0D, 0x00, 0x01, 0x00, 0x01, value]),
+        build_report([0x09, 0x04, 0x00, 0x0E]),
+    ]
+
+
+def focus_lock_query_report() -> bytes:
+    return build_report([0x09, 0x04, 0x00, 0x0E])
+
+
+def meter_mode_query_report() -> bytes:
+    return build_report([0x09, 0x04, 0x00, 0x04])
+
+
+def remote_pairing_reports(enabled: bool) -> list[bytes]:
+    value = 0x01 if enabled else 0x00
+    return [
+        build_report([0x09, 0x03, 0x04, 0x03, 0x00, 0x01, 0x00, 0x01, value]),
+        build_report([0x09, 0x03, 0x04, 0x04]),
+    ]
+
+
+def remote_pairing_query_report() -> bytes:
+    return build_report([0x09, 0x03, 0x04, 0x04])
+
+
 def _focus_coordinate(value: int | None, default: int) -> int:
     resolved = default if value is None else value
     if resolved < 0 or resolved > 0x7F:
         raise ValueError("focus metering coordinates must be in range 0..127")
     return resolved
-
-
-def _ptz_motor_axis_and_sign(direction: PtzDirection) -> tuple[int, float]:
-    if direction == "left":
-        return 0x01, -1.0
-    if direction == "right":
-        return 0x01, 1.0
-    if direction == "up":
-        return 0x02, 1.0
-    return 0x02, -1.0

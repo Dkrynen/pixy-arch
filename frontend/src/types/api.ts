@@ -102,7 +102,26 @@ export type PixyHidQueryName =
   | "focus_metering_state"
   | "mirror_horizontal_state"
   | "mirror_vertical_state"
-  | "auto_rotate_state";
+  | "auto_rotate_state"
+  | "serial_number"
+  | "firmware_isp"
+  | "firmware_ai"
+  | "firmware_mcu"
+  | "serial_csk"
+  | "power_on_default_state"
+  | "preset_1_state"
+  | "preset_2_state"
+  | "preset_3_state"
+  | "meter_mode"
+  | "wb_lock_state"
+  | "ev_lock_state"
+  | "focus_lock_state"
+  | "denoise_state"
+  | "remote_pairing_state"
+  | "motor_pos_pan"
+  | "motor_pos_tilt"
+  | "motor_speed_pan"
+  | "motor_speed_tilt";
 export type FocusMeteringPoint = {
   x: number;
   y: number;
@@ -215,14 +234,98 @@ export type AudioStatus = {
   name: string | null;
   muted: boolean | null;
   volume: number | null;
+  source_node: string | null;
+  default_source: boolean | null;
+  monitor_running: boolean;
   reason: string | null;
 };
 
 export type AudioCommandResult = {
   ok: boolean;
   command: string;
-  value: boolean;
-  card: number;
+  value: boolean | number | string;
+  card: number | null;
+};
+
+export type AudioMonitorResult = {
+  ok: boolean;
+  running: boolean;
+  pid: number | null;
+  source_node: string | null;
+  reason: string | null;
+};
+
+export type VirtualCamTransform = {
+  mirror: boolean;
+  rotate: 0 | 90 | 180 | 270;
+  zoom: number;
+};
+
+export type VirtualCamStatus = {
+  available: boolean;
+  sink_path: string | null;
+  running: boolean;
+  pid: number | null;
+  pipeline: string;
+  source_device: string | null;
+  transform: VirtualCamTransform;
+  reason: string | null;
+};
+
+export type VirtualCamStartRequest = {
+  source_device?: string | null;
+  sink_device?: string | null;
+  pipeline?: "transform" | "whiteboard";
+  input_width?: number;
+  input_height?: number;
+  input_fps?: number;
+  output_width?: number;
+  output_height?: number;
+  transform?: VirtualCamTransform;
+};
+
+export type VirtualCamActionResult = {
+  ok: boolean;
+  running: boolean;
+  pid: number | null;
+  sink_path: string | null;
+  reason: string | null;
+};
+
+export type AutomationSettings = {
+  enabled: boolean;
+  video_device: string;
+  on_open: "tracking" | "none";
+  on_close: "privacy" | "previous" | "none";
+  grace_seconds: number;
+  poll_seconds: number;
+  exclude_processes: string[];
+};
+
+export type AutomationStatus = {
+  running: boolean;
+  camera_in_use: boolean;
+  holders: string[];
+  saved_mode: string | null;
+  last_action: string | null;
+  settings: AutomationSettings;
+};
+
+export type FirmwareComponent = {
+  name: string;
+  current: string | null;
+  latest: string | null;
+  update_available: boolean | null;
+  request_hex: string | null;
+  response_hex: string | null;
+};
+
+export type FirmwareStatus = {
+  components: FirmwareComponent[];
+  manifest_url: string | null;
+  manifest_checked: boolean;
+  serial_number: string | null;
+  reason: string | null;
 };
 
 export type AppSettings = {

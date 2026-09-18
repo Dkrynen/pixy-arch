@@ -3,13 +3,16 @@ import { useState } from "react";
 
 import { countActiveControls } from "../../domains/controls/grouping";
 import type { UseAudioResult } from "../../hooks/useAudio";
+import type { UseAutomationResult } from "../../hooks/useAutomation";
 import type { UseControlPresetsResult } from "../../hooks/useControlPresets";
 import type { UseControlsResult } from "../../hooks/useControls";
 import type { UseDevicesResult } from "../../hooks/useDevices";
+import type { UseFirmwareResult } from "../../hooks/useFirmware";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
 import type { UseVideoCaptureResult } from "../../hooks/useVideoCapture";
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
+import type { UseVirtualCamResult } from "../../hooks/useVirtualCam";
 import { DeviceRail } from "../panels/DeviceRail";
 import { StatusPill } from "../ui/StatusPill";
 import { ControlDeck } from "./ControlDeck";
@@ -23,6 +26,9 @@ type Props = {
   videoCapture: UseVideoCaptureResult;
   pixyHid: UsePixyHidResult;
   audio: UseAudioResult;
+  virtualCam: UseVirtualCamResult;
+  automation: UseAutomationResult;
+  firmware: UseFirmwareResult;
   privacySafety: UsePrivacySafetyResult;
   controlPresets: UseControlPresetsResult;
 };
@@ -34,6 +40,9 @@ export function AppShell({
   videoCapture,
   pixyHid,
   audio,
+  virtualCam,
+  automation,
+  firmware,
   privacySafety,
   controlPresets
 }: Props) {
@@ -105,6 +114,8 @@ export function AppShell({
               videoCapture={videoCapture}
               pixyHid={pixyHid}
               audio={audio}
+              virtualCam={virtualCam}
+              firmware={firmware}
               privacySafety={privacySafety}
               controlPresets={controlPresets}
             />
@@ -119,7 +130,7 @@ export function AppShell({
               privacySafety={privacySafety}
             />
           ) : (
-            <SettingsDeck privacySafety={privacySafety} />
+            <SettingsDeck privacySafety={privacySafety} automation={automation} />
           )}
         </div>
       </section>

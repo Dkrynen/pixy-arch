@@ -1,13 +1,17 @@
 import type {
   AudioCommandResult,
+  AudioMonitorResult,
   AudioStatus,
   AudioMode,
   AppSettings,
   AppSettingsUpdate,
+  AutomationSettings,
+  AutomationStatus,
   ControlPreset,
   ControlPresetCreateRequest,
   ControlPresetDeleteResult,
   Device,
+  FirmwareStatus,
   FocusMeteringPoint,
   FocusMeteringMode,
   MirrorMode,
@@ -28,7 +32,10 @@ import type {
   V4L2Control,
   VideoFormatOption,
   VideoRecordingStatus,
-  VideoStreamStopResult
+  VideoStreamStopResult,
+  VirtualCamActionResult,
+  VirtualCamStartRequest,
+  VirtualCamStatus
 } from "../types/api";
 
 const API_BASE = "";
@@ -350,4 +357,114 @@ export async function setAudioMute(muted: boolean): Promise<AudioCommandResult> 
     method: "PATCH",
     body: JSON.stringify({ muted })
   });
+}
+
+export async function setAudioVolume(volume: number): Promise<AudioCommandResult> {
+  return requestJson<AudioCommandResult>("/api/audio/volume", {
+    method: "PATCH",
+    body: JSON.stringify({ volume })
+  });
+}
+
+export async function setAudioDefaultSource(): Promise<AudioCommandResult> {
+  return requestJson<AudioCommandResult>("/api/audio/default-source", { method: "POST" });
+}
+
+export async function startAudioMonitor(): Promise<AudioMonitorResult> {
+  return requestJson<AudioMonitorResult>("/api/audio/monitor/start", { method: "POST" });
+}
+
+export async function stopAudioMonitor(): Promise<AudioMonitorResult> {
+  return requestJson<AudioMonitorResult>("/api/audio/monitor/stop", { method: "POST" });
+}
+
+export async function clearPixyPtzPreset(slot: PtzPresetSlot): Promise<PixyHidCommandResult> {
+  return requestJson<PixyHidCommandResult>("/api/pixy-hid/ptz-preset/clear", {
+    method: "PATCH",
+    body: JSON.stringify({ slot })
+  });
+}
+
+export async function capturePixyPowerOnDefault(): Promise<PixyHidCommandResult> {
+  return requestJson<PixyHidCommandResult>("/api/pixy-hid/power-on-default/capture", { method: "PATCH" });
+}
+
+export async function disablePixyPowerOnDefault(): Promise<PixyHidCommandResult> {
+  return requestJson<PixyHidCommandResult>("/api/pixy-hid/power-on-default/disable", { method: "PATCH" });
+}
+
+export async function pixyGoToDefault(): Promise<PixyHidCommandResult> {
+  return requestJson<PixyHidCommandResult>("/api/pixy-hid/go-to-default", { method: "PATCH" });
+}
+
+export async function setPixyDenoise(enabled: boolean): Promise<PixyHidCommandResult> {
+  return requestJson<PixyHidCommandResult>("/api/pixy-hid/denoise", {
+    method: "PATCH",
+    body: JSON.stringify({ enabled })
+  });
+}
+
+export async function setPixyWbLock(enabled: boolean): Promise<PixyHidCommandResult> {
+  return requestJson<PixyHidCommandResult>("/api/pixy-hid/wb-lock", {
+    method: "PATCH",
+    body: JSON.stringify({ enabled })
+  });
+}
+
+export async function setPixyEvLock(enabled: boolean, exposure = 0): Promise<PixyHidCommandResult> {
+  return requestJson<PixyHidCommandResult>("/api/pixy-hid/ev-lock", {
+    method: "PATCH",
+    body: JSON.stringify({ enabled, exposure })
+  });
+}
+
+export async function setPixyFocusLock(enabled: boolean): Promise<PixyHidCommandResult> {
+  return requestJson<PixyHidCommandResult>("/api/pixy-hid/focus-lock", {
+    method: "PATCH",
+    body: JSON.stringify({ enabled })
+  });
+}
+
+export async function setPixyRemotePairing(enabled: boolean): Promise<PixyHidCommandResult> {
+  return requestJson<PixyHidCommandResult>("/api/pixy-hid/remote-pairing", {
+    method: "PATCH",
+    body: JSON.stringify({ enabled })
+  });
+}
+
+export async function setPixyMotorSpeed(axis: number, degreesPerSecond: number): Promise<PixyHidCommandResult> {
+  return requestJson<PixyHidCommandResult>("/api/pixy-hid/motor-speed", {
+    method: "PATCH",
+    body: JSON.stringify({ axis, degrees_per_second: degreesPerSecond })
+  });
+}
+
+export async function fetchVirtualCamStatus(): Promise<VirtualCamStatus> {
+  return requestJson<VirtualCamStatus>("/api/virtualcam/status");
+}
+
+export async function startVirtualCam(request: VirtualCamStartRequest): Promise<VirtualCamActionResult> {
+  return requestJson<VirtualCamActionResult>("/api/virtualcam/start", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export async function stopVirtualCam(): Promise<VirtualCamActionResult> {
+  return requestJson<VirtualCamActionResult>("/api/virtualcam/stop", { method: "POST" });
+}
+
+export async function fetchAutomationStatus(): Promise<AutomationStatus> {
+  return requestJson<AutomationStatus>("/api/automation/status");
+}
+
+export async function updateAutomationSettings(settings: AutomationSettings): Promise<AutomationStatus> {
+  return requestJson<AutomationStatus>("/api/automation/settings", {
+    method: "PATCH",
+    body: JSON.stringify(settings)
+  });
+}
+
+export async function fetchFirmwareStatus(checkUpdates = false): Promise<FirmwareStatus> {
+  return requestJson<FirmwareStatus>(`/api/firmware/status${checkUpdates ? "?check_updates=true" : ""}`);
 }

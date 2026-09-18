@@ -4,13 +4,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import { groupControls } from "../../domains/controls/grouping";
 import type { UseAudioResult } from "../../hooks/useAudio";
+import type { UseAutomationResult } from "../../hooks/useAutomation";
 import type { UseControlPresetsResult } from "../../hooks/useControlPresets";
 import type { UseControlsResult } from "../../hooks/useControls";
 import type { UseDevicesResult } from "../../hooks/useDevices";
+import type { UseFirmwareResult } from "../../hooks/useFirmware";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
 import type { UseVideoCaptureResult } from "../../hooks/useVideoCapture";
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
+import type { UseVirtualCamResult } from "../../hooks/useVirtualCam";
 import type { AppSettings, Device, V4L2Control, VideoFormatOption } from "../../types/api";
 import { AppShell } from "./AppShell";
 
@@ -153,18 +156,75 @@ function pixyHid(): UsePixyHidResult {
     sendPtzVector: vi.fn(),
     recenterPtz: vi.fn(),
     savePtzPreset: vi.fn(),
-    loadPtzPreset: vi.fn()
+    loadPtzPreset: vi.fn(),
+    clearPtzPreset: vi.fn(),
+    capturePowerOnDefault: vi.fn(),
+    disablePowerOnDefault: vi.fn(),
+    goToDefault: vi.fn(),
+    setDenoise: vi.fn(),
+    setWbLock: vi.fn(),
+    setEvLock: vi.fn(),
+    setFocusLock: vi.fn(),
+    setRemotePairing: vi.fn(),
+    setMotorSpeed: vi.fn()
   };
 }
 
 function audio(): UseAudioResult {
   return {
-    status: { available: true, card: 3, name: "EMEET PIXY", muted: false, volume: 10, reason: null },
+    status: {
+      available: true,
+      card: 3,
+      name: "EMEET PIXY",
+      muted: false,
+      volume: 10,
+      source_node: null,
+      default_source: null,
+      monitor_running: false,
+      reason: null
+    },
     isLoading: false,
     pending: false,
     error: null,
     refresh: vi.fn(),
-    setMuted: vi.fn()
+    setMuted: vi.fn(),
+    setVolume: vi.fn(),
+    setDefaultSource: vi.fn(),
+    setMonitorRunning: vi.fn()
+  };
+}
+
+function virtualCam(): UseVirtualCamResult {
+  return {
+    status: null,
+    isLoading: false,
+    pending: false,
+    error: null,
+    refresh: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn()
+  };
+}
+
+function automation(): UseAutomationResult {
+  return {
+    status: null,
+    isLoading: false,
+    pending: false,
+    error: null,
+    refresh: vi.fn(),
+    applySettings: vi.fn()
+  };
+}
+
+function firmware(): UseFirmwareResult {
+  return {
+    status: null,
+    isLoading: false,
+    checking: false,
+    error: null,
+    refresh: vi.fn(),
+    checkUpdates: vi.fn()
   };
 }
 
@@ -217,6 +277,9 @@ describe("AppShell", () => {
         videoCapture={videoCapture()}
         pixyHid={pixyHid()}
         audio={audio()}
+        virtualCam={virtualCam()}
+        automation={automation()}
+        firmware={firmware()}
         privacySafety={privacySafety()}
         controlPresets={controlPresets()}
       />

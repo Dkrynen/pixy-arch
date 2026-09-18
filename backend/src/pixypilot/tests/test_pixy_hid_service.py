@@ -6,6 +6,7 @@ from pixypilot.domains.pixy_hid.models import PixyHidRawQueryResult
 from pixypilot.domains.pixy_hid.service import (
     PixyHidService,
     QUERY_SPECS,
+    _HidChannel,
     _ascii_preview,
     _parse_audio_response,
     _parse_gesture_response,
@@ -172,14 +173,18 @@ async def test_query_raw_appends_hid_trace_with_request_and_response(tmp_path, m
 def test_write_reports_appends_hid_trace_with_operation(tmp_path, monkeypatch) -> None:
     service = PixyHidService(report_gap_seconds=0)
     hidraw_path = tmp_path / "hidraw-test"
+    hidraw_path.touch()
     report = bytes([0x09, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x01])
     monkeypatch.setattr("pixypilot.domains.pixy_hid.service.project_root", lambda: tmp_path)
+    monkeypatch.setattr("pixypilot.domains.pixy_hid.service._CHANNEL", _HidChannel())
 
     service._write_reports_sync(str(hidraw_path), [report], operation="tracking:tracking")
 
     trace_path = tmp_path / "diagnostics" / "hid" / "pixypilot-hid-trace.jsonl"
     event = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[-1])
-    assert hidraw_path.read_bytes() == report
+    # The persistent channel warms up the fd first, so the file may contain
+    # earlier reports; the command report itself must land intact.
+    assert hidraw_path.read_bytes().endswith(report)
     assert event["event"] == "write"
     assert event["operation"] == "tracking:tracking"
     assert event["request_hex"] == "09 01 01 00 00 01 00 01 01"

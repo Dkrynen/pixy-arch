@@ -187,9 +187,9 @@ def test_ptz_relative_reports_match_pixybar_degree_move_shape() -> None:
     mode_report, move_report = ptz_relative_reports("left", degrees=3.0)
 
     assert mode_report[:9] == bytes([0x09, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00])
-    assert move_report[:9] == bytes([0x09, 0x03, 0x01, 0x19, 0x00, 0x05, 0x00, 0x05, 0x01])
-    assert move_report[9:13] == bytes.fromhex("000040c0")
-    assert ptz_relative_reports("right", degrees=3.0)[1][9:13] == bytes.fromhex("00004040")
+    assert move_report[:9] == bytes([0x09, 0x63, 0x01, 0x19, 0x00, 0x05, 0x00, 0x05, 0x01])
+    assert move_report[9:13] == bytes.fromhex("00004040")
+    assert ptz_relative_reports("right", degrees=3.0)[1][9:13] == bytes.fromhex("000040c0")
     assert ptz_relative_reports("up", degrees=1.0)[1][8:13] == bytes.fromhex("020000803f")
     assert ptz_relative_reports("down", degrees=1.0)[1][8:13] == bytes.fromhex("02000080bf")
 
@@ -198,9 +198,9 @@ def test_ptz_recenter_reports_use_absolute_motor_payload_not_preset_slot() -> No
     mode_report, pan_report, tilt_report = ptz_recenter_reports()
 
     assert mode_report[:9] == bytes([0x09, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00])
-    assert pan_report[:9] == bytes([0x09, 0x03, 0x01, 0x18, 0x00, 0x05, 0x00, 0x05, 0x01])
+    assert pan_report[:9] == bytes([0x09, 0x63, 0x01, 0x00, 0x00, 0x05, 0x00, 0x05, 0x01])
     assert pan_report[9:13] == bytes.fromhex("00000000")
-    assert tilt_report[:9] == bytes([0x09, 0x03, 0x01, 0x18, 0x00, 0x05, 0x00, 0x05, 0x02])
+    assert tilt_report[:9] == bytes([0x09, 0x63, 0x01, 0x00, 0x00, 0x05, 0x00, 0x05, 0x02])
     assert tilt_report[9:13] == bytes.fromhex("00000000")
 
 

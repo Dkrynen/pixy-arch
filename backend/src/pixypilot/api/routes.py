@@ -1,8 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from pixypilot.domains.audio.models import AudioCommandResult, AudioMuteRequest, AudioStatus
+from pixypilot.domains.audio.models import (
+    AudioCommandResult,
+    AudioMonitorResult,
+    AudioMuteRequest,
+    AudioStatus,
+    AudioVolumeRequest,
+)
 from pixypilot.domains.audio.service import AudioService, get_audio_service
+from pixypilot.domains.automation.models import AutomationSettings, AutomationStatus
+from pixypilot.domains.automation.service import AutomationService, get_automation_service
 from pixypilot.domains.control_presets.models import (
     ControlPreset,
     ControlPresetCreateRequest,
@@ -11,15 +19,19 @@ from pixypilot.domains.control_presets.models import (
 )
 from pixypilot.domains.control_presets.service import ControlPresetService, get_control_preset_service
 from pixypilot.domains.devices.models import Device
+from pixypilot.domains.firmware.models import FirmwareStatus
+from pixypilot.domains.firmware.service import FirmwareService, get_firmware_service
 from pixypilot.domains.hotplug.service import HotplugService, get_hotplug_service
 from pixypilot.domains.pcap_import.models import PcapImportRecord
 from pixypilot.domains.pcap_import.service import PcapImportService, get_pcap_import_service
 from pixypilot.domains.pixy_hid.models import (
     AudioModeRequest,
     AutoPrivacyRequest,
+    EvLockRequest,
     FocusMeteringRequest,
     GestureRequest,
     MirrorRequest,
+    MotorSpeedRequest,
     PixyHidCommandResult,
     PixyHidDeviceState,
     PixyHidDiagnosticSnapshot,
@@ -39,6 +51,8 @@ from pixypilot.domains.settings.models import AppSettings, AppSettingsUpdate
 from pixypilot.domains.settings.service import SettingsService, get_settings_service
 from pixypilot.domains.uvc_extension.models import UvcExtensionSelectorProbe, UvcExtensionSnapshot
 from pixypilot.domains.uvc_extension.service import UvcExtensionService, get_uvc_extension_service
+from pixypilot.domains.virtualcam.models import VirtualCamActionResult, VirtualCamStartRequest, VirtualCamStatus
+from pixypilot.domains.virtualcam.service import VirtualCamService, get_virtualcam_service
 from pixypilot.domains.v4l2.models import (
     ControlSetRequest,
     V4L2Control,
@@ -341,6 +355,51 @@ async def set_audio_mute(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.patch("/audio/volume", response_model=AudioCommandResult)
+async def set_audio_volume(
+    request: AudioVolumeRequest,
+    service: AudioService = Depends(get_audio_service),
+) -> AudioCommandResult:
+    try:
+        return await service.set_volume(request.volume)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/audio/default-source", response_model=AudioCommandResult)
+async def set_audio_default_source(
+    service: AudioService = Depends(get_audio_service),
+) -> AudioCommandResult:
+    try:
+        return await service.set_default_source()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/audio/monitor", response_model=AudioMonitorResult)
+async def audio_monitor_status(
+    service: AudioService = Depends(get_audio_service),
+) -> AudioMonitorResult:
+    return await service.monitor_status()
+
+
+@router.post("/audio/monitor/start", response_model=AudioMonitorResult)
+async def start_audio_monitor(
+    service: AudioService = Depends(get_audio_service),
+) -> AudioMonitorResult:
+    result = await service.start_monitor()
+    if not result.ok:
+        raise HTTPException(status_code=404, detail=result.reason)
+    return result
+
+
+@router.post("/audio/monitor/stop", response_model=AudioMonitorResult)
+async def stop_audio_monitor(
+    service: AudioService = Depends(get_audio_service),
+) -> AudioMonitorResult:
+    return await service.stop_monitor()
+
+
 @router.get("/pixy-hid/status", response_model=PixyHidStatus)
 async def pixy_hid_status(
     service: PixyHidService = Depends(get_pixy_hid_service),
@@ -590,3 +649,182 @@ async def load_pixy_ptz_preset(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch("/pixy-hid/ptz-preset/clear", response_model=PixyHidCommandResult)
+async def clear_pixy_ptz_preset(
+    request: PtzPresetSlotRequest,
+    service: PixyHidService = Depends(get_pixy_hid_service),
+) -> PixyHidCommandResult:
+    try:
+        return await service.clear_ptz_preset(request.slot)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch("/pixy-hid/power-on-default/capture", response_model=PixyHidCommandResult)
+async def capture_pixy_power_on_default(
+    service: PixyHidService = Depends(get_pixy_hid_service),
+) -> PixyHidCommandResult:
+    try:
+        return await service.capture_power_on_default()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch("/pixy-hid/power-on-default/disable", response_model=PixyHidCommandResult)
+async def disable_pixy_power_on_default(
+    service: PixyHidService = Depends(get_pixy_hid_service),
+) -> PixyHidCommandResult:
+    try:
+        return await service.disable_power_on_default()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch("/pixy-hid/go-to-default", response_model=PixyHidCommandResult)
+async def pixy_go_to_default_position(
+    service: PixyHidService = Depends(get_pixy_hid_service),
+) -> PixyHidCommandResult:
+    try:
+        return await service.go_to_default_position()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch("/pixy-hid/denoise", response_model=PixyHidCommandResult)
+async def set_pixy_denoise(
+    request: GestureRequest,
+    service: PixyHidService = Depends(get_pixy_hid_service),
+) -> PixyHidCommandResult:
+    try:
+        return await service.set_denoise(request.enabled)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch("/pixy-hid/wb-lock", response_model=PixyHidCommandResult)
+async def set_pixy_wb_lock(
+    request: GestureRequest,
+    service: PixyHidService = Depends(get_pixy_hid_service),
+) -> PixyHidCommandResult:
+    try:
+        return await service.set_wb_lock(request.enabled)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch("/pixy-hid/ev-lock", response_model=PixyHidCommandResult)
+async def set_pixy_ev_lock(
+    request: EvLockRequest,
+    service: PixyHidService = Depends(get_pixy_hid_service),
+) -> PixyHidCommandResult:
+    try:
+        return await service.set_ev_lock(request.enabled, request.exposure)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch("/pixy-hid/focus-lock", response_model=PixyHidCommandResult)
+async def set_pixy_focus_lock(
+    request: GestureRequest,
+    service: PixyHidService = Depends(get_pixy_hid_service),
+) -> PixyHidCommandResult:
+    try:
+        return await service.set_focus_lock(request.enabled)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch("/pixy-hid/remote-pairing", response_model=PixyHidCommandResult)
+async def set_pixy_remote_pairing(
+    request: GestureRequest,
+    service: PixyHidService = Depends(get_pixy_hid_service),
+) -> PixyHidCommandResult:
+    try:
+        return await service.set_remote_pairing(request.enabled)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch("/pixy-hid/motor-speed", response_model=PixyHidCommandResult)
+async def set_pixy_motor_speed(
+    request: MotorSpeedRequest,
+    service: PixyHidService = Depends(get_pixy_hid_service),
+) -> PixyHidCommandResult:
+    try:
+        return await service.set_motor_speed(request.axis, request.degrees_per_second)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.get("/virtualcam/status", response_model=VirtualCamStatus)
+async def virtualcam_status(
+    service: VirtualCamService = Depends(get_virtualcam_service),
+) -> VirtualCamStatus:
+    return await service.status()
+
+
+@router.post("/virtualcam/start", response_model=VirtualCamActionResult)
+async def virtualcam_start(
+    request: VirtualCamStartRequest,
+    service: VirtualCamService = Depends(get_virtualcam_service),
+    video_service: VideoService = Depends(get_video_service),
+) -> VirtualCamActionResult:
+    # The Pixy is single-consumer: free the capture node from any preview
+    # stream before handing it to the loopback pipeline.
+    await video_service.stop_streams(None)
+    result = await service.start(request)
+    if not result.ok:
+        raise HTTPException(status_code=409, detail=result.reason)
+    return result
+
+
+@router.post("/virtualcam/stop", response_model=VirtualCamActionResult)
+async def virtualcam_stop(
+    service: VirtualCamService = Depends(get_virtualcam_service),
+) -> VirtualCamActionResult:
+    return await service.stop()
+
+
+@router.get("/automation/status", response_model=AutomationStatus)
+async def automation_status(
+    service: AutomationService = Depends(get_automation_service),
+) -> AutomationStatus:
+    return await service.status()
+
+
+@router.patch("/automation/settings", response_model=AutomationStatus)
+async def automation_settings(
+    request: AutomationSettings,
+    service: AutomationService = Depends(get_automation_service),
+) -> AutomationStatus:
+    return await service.apply_settings(request)
+
+
+@router.get("/firmware/status", response_model=FirmwareStatus)
+async def firmware_status(
+    check_updates: bool = Query(default=False),
+    service: FirmwareService = Depends(get_firmware_service),
+) -> FirmwareStatus:
+    return await service.status(check_updates=check_updates)

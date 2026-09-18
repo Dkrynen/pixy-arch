@@ -13,6 +13,8 @@ dependencies = [
   "pydantic>=2.8.0",
   "PyYAML>=6.0.2",
   "pyudev>=0.24.0",
+  "numpy>=2.0",
+  "opencv-python-headless>=4.10",
 ]
 
 [project.scripts]

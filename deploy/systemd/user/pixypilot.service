@@ -1,0 +1,12 @@
+[Unit]
+Description=PixyPilot - EMEET PIXY control backend
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/AI-Workspace/research/emeet-pixy/PixyPilot/backend/.venv/bin/pixypilot-api
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

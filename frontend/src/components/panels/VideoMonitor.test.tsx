@@ -102,7 +102,17 @@ function pixyHid(setFocusMeteringMode = vi.fn().mockResolvedValue(undefined)): U
     sendPtzVector: vi.fn(),
     recenterPtz: vi.fn(),
     savePtzPreset: vi.fn(),
-    loadPtzPreset: vi.fn()
+    loadPtzPreset: vi.fn(),
+    clearPtzPreset: vi.fn(),
+    capturePowerOnDefault: vi.fn(),
+    disablePowerOnDefault: vi.fn(),
+    goToDefault: vi.fn(),
+    setDenoise: vi.fn(),
+    setWbLock: vi.fn(),
+    setEvLock: vi.fn(),
+    setFocusLock: vi.fn(),
+    setRemotePairing: vi.fn(),
+    setMotorSpeed: vi.fn(),
   };
 }
 

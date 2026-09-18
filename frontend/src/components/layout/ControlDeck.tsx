@@ -3,13 +3,17 @@ import { RadioTower } from "lucide-react";
 import type { UseAudioResult } from "../../hooks/useAudio";
 import type { UseControlPresetsResult } from "../../hooks/useControlPresets";
 import type { UseControlsResult } from "../../hooks/useControls";
+import type { UseFirmwareResult } from "../../hooks/useFirmware";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
 import type { UseVideoCaptureResult } from "../../hooks/useVideoCapture";
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
+import type { UseVirtualCamResult } from "../../hooks/useVirtualCam";
 import { ControlGroupPanel } from "../controls/ControlGroupPanel";
+import { FirmwarePanel } from "../panels/FirmwarePanel";
 import { SmartPixyPanel } from "../panels/SmartPixyPanel";
 import { VideoMonitor } from "../panels/VideoMonitor";
+import { VirtualCamPanel } from "../panels/VirtualCamPanel";
 
 type Props = {
   deviceName: string | null;
@@ -18,6 +22,8 @@ type Props = {
   videoCapture: UseVideoCaptureResult;
   pixyHid: UsePixyHidResult;
   audio: UseAudioResult;
+  virtualCam: UseVirtualCamResult;
+  firmware: UseFirmwareResult;
   privacySafety: UsePrivacySafetyResult;
   controlPresets: UseControlPresetsResult;
 };
@@ -29,6 +35,8 @@ export function ControlDeck({
   videoCapture,
   pixyHid,
   audio,
+  virtualCam,
+  firmware,
   privacySafety,
   controlPresets
 }: Props) {
@@ -56,6 +64,8 @@ export function ControlDeck({
       <aside className="operator-side">
         <SignalPanel isLoading={controls.isLoading} />
         <SmartPixyPanel pixyHid={pixyHid} audio={audio} privacySafety={privacySafety} />
+        <VirtualCamPanel virtualCam={virtualCam} />
+        <FirmwarePanel firmware={firmware} />
       </aside>
     </div>
   );

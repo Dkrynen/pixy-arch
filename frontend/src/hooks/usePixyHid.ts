@@ -1,14 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
+  capturePixyPowerOnDefault,
+  clearPixyPtzPreset,
+  disablePixyPowerOnDefault,
   fetchPixyHidState,
   fetchPixyHidStatus,
+  pixyGoToDefault,
   setPixyAudio,
   setPixyAutoPrivacy,
   setPixyAutoRotate,
+  setPixyDenoise,
+  setPixyEvLock,
+  setPixyFocusLock,
   setPixyGesture,
   setPixyFocusMetering,
   setPixyMirror,
+  setPixyMotorSpeed,
+  setPixyRemotePairing,
+  setPixyWbLock,
   loadPixyPtzPreset,
   recenterPixyPtz,
   sendPixyPtzDirection,
@@ -73,6 +83,16 @@ export type UsePixyHidResult = {
   recenterPtz: () => Promise<void>;
   savePtzPreset: (slot: PtzPresetSlot) => Promise<void>;
   loadPtzPreset: (slot: PtzPresetSlot) => Promise<void>;
+  clearPtzPreset: (slot: PtzPresetSlot) => Promise<void>;
+  capturePowerOnDefault: () => Promise<void>;
+  disablePowerOnDefault: () => Promise<void>;
+  goToDefault: () => Promise<void>;
+  setDenoise: (enabled: boolean) => Promise<void>;
+  setWbLock: (enabled: boolean) => Promise<void>;
+  setEvLock: (enabled: boolean, exposure?: number) => Promise<void>;
+  setFocusLock: (enabled: boolean) => Promise<void>;
+  setRemotePairing: (enabled: boolean) => Promise<void>;
+  setMotorSpeed: (axis: number, degreesPerSecond: number) => Promise<void>;
 };
 
 export function usePixyHid(): UsePixyHidResult {
@@ -344,6 +364,86 @@ export function usePixyHid(): UsePixyHidResult {
     [runCommand]
   );
 
+  const clearPtzPreset = useCallback(
+    async (slot: PtzPresetSlot) =>
+      runCommand(`ptz-preset-clear:${slot}`, async () => {
+        await clearPixyPtzPreset(slot);
+      }),
+    [runCommand]
+  );
+
+  const capturePowerOnDefault = useCallback(
+    async () =>
+      runCommand("power-on-default:capture", async () => {
+        await capturePixyPowerOnDefault();
+      }),
+    [runCommand]
+  );
+
+  const disablePowerOnDefault = useCallback(
+    async () =>
+      runCommand("power-on-default:disable", async () => {
+        await disablePixyPowerOnDefault();
+      }),
+    [runCommand]
+  );
+
+  const goToDefault = useCallback(
+    async () =>
+      runCommand("go-to-default", async () => {
+        await pixyGoToDefault();
+      }),
+    [runCommand]
+  );
+
+  const setDenoise = useCallback(
+    async (enabled: boolean) =>
+      runCommand(`denoise:${enabled ? "on" : "off"}`, async () => {
+        await setPixyDenoise(enabled);
+      }),
+    [runCommand]
+  );
+
+  const setWbLock = useCallback(
+    async (enabled: boolean) =>
+      runCommand(`wb-lock:${enabled ? "on" : "off"}`, async () => {
+        await setPixyWbLock(enabled);
+      }),
+    [runCommand]
+  );
+
+  const setEvLock = useCallback(
+    async (enabled: boolean, exposure = 0) =>
+      runCommand(`ev-lock:${enabled ? "on" : "off"}`, async () => {
+        await setPixyEvLock(enabled, exposure);
+      }),
+    [runCommand]
+  );
+
+  const setFocusLock = useCallback(
+    async (enabled: boolean) =>
+      runCommand(`focus-lock:${enabled ? "on" : "off"}`, async () => {
+        await setPixyFocusLock(enabled);
+      }),
+    [runCommand]
+  );
+
+  const setRemotePairing = useCallback(
+    async (enabled: boolean) =>
+      runCommand(`remote-pairing:${enabled ? "on" : "off"}`, async () => {
+        await setPixyRemotePairing(enabled);
+      }),
+    [runCommand]
+  );
+
+  const setMotorSpeed = useCallback(
+    async (axis: number, degreesPerSecond: number) =>
+      runCommand(`motor-speed:${axis}:${degreesPerSecond}`, async () => {
+        await setPixyMotorSpeed(axis, degreesPerSecond);
+      }),
+    [runCommand]
+  );
+
   return {
     status,
     isLoading,
@@ -379,7 +479,17 @@ export function usePixyHid(): UsePixyHidResult {
     sendPtzVector,
     recenterPtz,
     savePtzPreset,
-    loadPtzPreset
+    loadPtzPreset,
+    clearPtzPreset,
+    capturePowerOnDefault,
+    disablePowerOnDefault,
+    goToDefault,
+    setDenoise,
+    setWbLock,
+    setEvLock,
+    setFocusLock,
+    setRemotePairing,
+    setMotorSpeed
   };
 }
 

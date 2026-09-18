@@ -17,26 +17,51 @@ from pixypilot.domains.pixy_hid.commands import (
     auto_privacy_query_report,
     auto_privacy_reports,
     auto_rotate_reports,
+    denoise_query_report,
+    denoise_reports,
     device_info_query_report,
+    ev_lock_query_report,
+    ev_lock_reports,
     feature_query_report,
+    firmware_version_query_report,
+    focus_lock_query_report,
+    focus_lock_reports,
     focus_metering_query_report,
     focus_metering_reports,
     gesture_query_report,
     gesture_reports,
+    go_to_default_position_reports,
+    meter_mode_query_report,
     mirror_reports,
+    motor_absolute_reports,
+    motor_position_query_report,
+    motor_speed_query_report,
+    motor_speed_reports,
+    power_on_default_capture_reports,
+    power_on_default_disable_reports,
+    power_on_default_query_report,
     ptz_absolute_reports,
     ptz_direction_reports,
+    ptz_preset_clear_reports,
     ptz_preset_load_reports,
+    ptz_preset_query_report,
     ptz_preset_save_reports,
     ptz_recenter_reports,
     ptz_relative_reports,
     ptz_vector_reports,
+    remote_pairing_query_report,
+    remote_pairing_reports,
+    serial_number_query_report,
+    subdevice_serial_query_report,
+    subdevice_version_query_report,
     target_tracking_query_report,
     target_tracking_reports,
     tracking_capability_query_report,
     tracking_probe_report,
     tracking_query_report,
     tracking_reports,
+    wb_lock_query_report,
+    wb_lock_reports,
 )
 from pixypilot.domains.pixy_hid.models import (
     AudioMode,
@@ -64,6 +89,11 @@ KNOWN_CONTROLS = [
     "focus_metering",
     "auto_privacy",
     "audio_mode",
+    "denoise",
+    "wb_lock",
+    "ev_lock",
+    "focus_lock",
+    "remote_pairing",
     "ptz_direction",
     "ptz_relative",
     "ptz_absolute",
@@ -71,6 +101,10 @@ KNOWN_CONTROLS = [
     "ptz_vector",
     "ptz_preset_save",
     "ptz_preset_load",
+    "ptz_preset_clear",
+    "power_on_default",
+    "go_to_default_position",
+    "motor_speed",
 ]
 DEFAULT_REPORT_GAP_SECONDS = 0.025
 DEFAULT_QUERY_TIMEOUT_SECONDS = 0.5
@@ -93,6 +127,79 @@ AUDIO_RESPONSE_VALUES: dict[int, AudioMode] = {
     0x02: "live",
     0x03: "original",
 }
+
+
+class _HidChannel:
+    # The firmware silently drops the first write on a freshly opened hidraw
+    # node, so one persistent fd is kept for all I/O and warmed up on open.
+
+    def __init__(self) -> None:
+        self._fd: int | None = None
+        self._path: str | None = None
+        self._last_write: float | None = None
+
+    def ensure(self, path: str) -> int:
+        if self._fd is not None and self._path == path:
+            return self._fd
+        self.close()
+        self._fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+        self._path = path
+        self.transact(tracking_query_report(), timeout=0.08)
+        return self._fd
+
+    def close(self) -> None:
+        if self._fd is not None:
+            try:
+                os.close(self._fd)
+            except OSError:
+                pass
+            self._fd = None
+            self._path = None
+
+    def _pace(self) -> None:
+        # The firmware wants >= ~25 ms between reports; enforce it for every
+        # write on the channel, including query writes back-to-back.
+        if self._last_write is not None:
+            delay = DEFAULT_REPORT_GAP_SECONDS - (time.monotonic() - self._last_write)
+            if delay > 0:
+                time.sleep(delay)
+        self._last_write = time.monotonic()
+
+    def send(self, report: bytes) -> None:
+        if self._fd is not None:
+            self._pace()
+            os.write(self._fd, report)
+
+    def transact(self, report: bytes, timeout: float = DEFAULT_QUERY_TIMEOUT_SECONDS, attempts: int = 2) -> bytes | None:
+        if self._fd is None:
+            return None
+        fd = self._fd
+        deadline = time.monotonic() + timeout
+        # Each attempt gets its own wait window so a lost write is retried
+        # instead of stalling the whole timeout on a silent device.
+        attempt_window = timeout / attempts
+        for _ in range(attempts):
+            _drain_hidraw(fd)
+            self._pace()
+            os.write(fd, report)
+            attempt_deadline = min(deadline, time.monotonic() + attempt_window)
+            while time.monotonic() < attempt_deadline:
+                remaining = attempt_deadline - time.monotonic()
+                readable, _, _ = select.select([fd], [], [], remaining)
+                if not readable:
+                    break
+                try:
+                    frame = os.read(fd, 64)
+                except BlockingIOError:
+                    continue
+                if not frame:
+                    break
+                if _is_reply_for(frame, report):
+                    return frame
+        return None
+
+
+_CHANNEL = _HidChannel()
 
 
 @dataclass(frozen=True)
@@ -131,6 +238,25 @@ QUERY_SPECS: dict[PixyHidQueryName, HidQuerySpec] = {
         feature_query_report(AUTO_ROTATE_FEATURE),
         value_index=9,
     ),
+    "serial_number": HidQuerySpec("serial_number", serial_number_query_report(), ascii_start=8),
+    "firmware_isp": HidQuerySpec("firmware_isp", firmware_version_query_report(), value_index=8),
+    "firmware_ai": HidQuerySpec("firmware_ai", subdevice_version_query_report(0x02), value_index=8),
+    "firmware_mcu": HidQuerySpec("firmware_mcu", subdevice_version_query_report(0x03), value_index=8),
+    "serial_csk": HidQuerySpec("serial_csk", subdevice_serial_query_report(0x02), ascii_start=8),
+    "power_on_default_state": HidQuerySpec("power_on_default_state", power_on_default_query_report(), value_index=8),
+    "preset_1_state": HidQuerySpec("preset_1_state", ptz_preset_query_report(1), value_index=9),
+    "preset_2_state": HidQuerySpec("preset_2_state", ptz_preset_query_report(2), value_index=9),
+    "preset_3_state": HidQuerySpec("preset_3_state", ptz_preset_query_report(3), value_index=9),
+    "meter_mode": HidQuerySpec("meter_mode", meter_mode_query_report(), value_index=8),
+    "wb_lock_state": HidQuerySpec("wb_lock_state", wb_lock_query_report(), value_index=8),
+    "ev_lock_state": HidQuerySpec("ev_lock_state", ev_lock_query_report(), value_index=8),
+    "focus_lock_state": HidQuerySpec("focus_lock_state", focus_lock_query_report(), value_index=8),
+    "denoise_state": HidQuerySpec("denoise_state", denoise_query_report(), value_index=8),
+    "remote_pairing_state": HidQuerySpec("remote_pairing_state", remote_pairing_query_report(), value_index=8),
+    "motor_pos_pan": HidQuerySpec("motor_pos_pan", motor_position_query_report(0x01), value_index=8),
+    "motor_pos_tilt": HidQuerySpec("motor_pos_tilt", motor_position_query_report(0x02), value_index=8),
+    "motor_speed_pan": HidQuerySpec("motor_speed_pan", motor_speed_query_report(0x01), value_index=8),
+    "motor_speed_tilt": HidQuerySpec("motor_speed_tilt", motor_speed_query_report(0x02), value_index=8),
 }
 
 
@@ -354,8 +480,82 @@ class PixyHidService:
 
     async def load_ptz_preset(self, slot: int) -> PixyHidCommandResult:
         path = await self._require_writable_path()
-        await self._write_reports(path, ptz_preset_load_reports(slot), operation=f"ptz_preset_load:{slot}")
-        return PixyHidCommandResult(ok=True, command="ptz_preset_load", value=slot, path=path)
+        async with _HID_IO_LOCK:
+            value = await asyncio.to_thread(self._load_ptz_preset_sync, path, slot)
+        return PixyHidCommandResult(ok=True, command="ptz_preset_load", value=value, path=path)
+
+    def _load_ptz_preset_sync(self, path: str, slot: int) -> str:
+        # The vendor goto-preset report ACKs but does not move on current
+        # firmware, so the stored position is read back and driven explicitly.
+        _CHANNEL.ensure(path)
+        response = _CHANNEL.transact(ptz_preset_query_report(slot))
+        _append_hid_trace_event(
+            {
+                "event": "query",
+                "operation": f"ptz_preset_state:{slot}",
+                "path": path,
+                "request_hex": _bytes_to_hex(ptz_preset_query_report(slot)),
+                "response_hex": _bytes_to_hex(response),
+            }
+        )
+        self._write_reports_sync(path, ptz_preset_load_reports(slot), operation=f"ptz_preset_load:{slot}")
+        position = _parse_preset_position(response)
+        if position is None:
+            return f"{slot}:empty"
+        pan, tilt = position
+        reports = [*motor_absolute_reports(0x01, pan), *motor_absolute_reports(0x02, tilt)]
+        self._write_reports_sync(path, reports, operation=f"ptz_preset_load:{slot}:drive:{pan:g},{tilt:g}")
+        return f"{slot}:{pan:g},{tilt:g}"
+
+    async def clear_ptz_preset(self, slot: int) -> PixyHidCommandResult:
+        path = await self._require_writable_path()
+        await self._write_reports(path, ptz_preset_clear_reports(slot), operation=f"ptz_preset_clear:{slot}")
+        return PixyHidCommandResult(ok=True, command="ptz_preset_clear", value=slot, path=path)
+
+    async def capture_power_on_default(self) -> PixyHidCommandResult:
+        path = await self._require_writable_path()
+        await self._write_reports(path, power_on_default_capture_reports(), operation="power_on_default:capture")
+        return PixyHidCommandResult(ok=True, command="power_on_default", value="capture", path=path)
+
+    async def disable_power_on_default(self) -> PixyHidCommandResult:
+        path = await self._require_writable_path()
+        await self._write_reports(path, power_on_default_disable_reports(), operation="power_on_default:disable")
+        return PixyHidCommandResult(ok=True, command="power_on_default", value="disable", path=path)
+
+    async def go_to_default_position(self) -> PixyHidCommandResult:
+        path = await self._require_writable_path()
+        await self._write_reports(path, go_to_default_position_reports(), operation="go_to_default_position")
+        return PixyHidCommandResult(ok=True, command="go_to_default_position", value=True, path=path)
+
+    async def set_denoise(self, enabled: bool) -> PixyHidCommandResult:
+        path = await self._require_writable_path()
+        await self._write_reports(path, denoise_reports(enabled), operation=f"denoise:{enabled}")
+        return PixyHidCommandResult(ok=True, command="denoise", value=enabled, path=path)
+
+    async def set_wb_lock(self, enabled: bool) -> PixyHidCommandResult:
+        path = await self._require_writable_path()
+        await self._write_reports(path, wb_lock_reports(enabled), operation=f"wb_lock:{enabled}")
+        return PixyHidCommandResult(ok=True, command="wb_lock", value=enabled, path=path)
+
+    async def set_focus_lock(self, enabled: bool) -> PixyHidCommandResult:
+        path = await self._require_writable_path()
+        await self._write_reports(path, focus_lock_reports(enabled), operation=f"focus_lock:{enabled}")
+        return PixyHidCommandResult(ok=True, command="focus_lock", value=enabled, path=path)
+
+    async def set_ev_lock(self, enabled: bool, exposure: int = 0) -> PixyHidCommandResult:
+        path = await self._require_writable_path()
+        await self._write_reports(path, ev_lock_reports(enabled, exposure), operation=f"ev_lock:{enabled}:{exposure}")
+        return PixyHidCommandResult(ok=True, command="ev_lock", value=enabled, path=path)
+
+    async def set_remote_pairing(self, enabled: bool) -> PixyHidCommandResult:
+        path = await self._require_writable_path()
+        await self._write_reports(path, remote_pairing_reports(enabled), operation=f"remote_pairing:{enabled}")
+        return PixyHidCommandResult(ok=True, command="remote_pairing", value=enabled, path=path)
+
+    async def set_motor_speed(self, axis: int, degrees_per_second: float) -> PixyHidCommandResult:
+        path = await self._require_writable_path()
+        await self._write_reports(path, motor_speed_reports(axis, degrees_per_second), operation=f"motor_speed:{axis}:{degrees_per_second:g}")
+        return PixyHidCommandResult(ok=True, command="motor_speed", value=f"{axis}:{degrees_per_second:g}", path=path)
 
     async def _require_writable_path(self) -> str:
         status = await self.status()
@@ -383,9 +583,10 @@ class PixyHidService:
         report_gap_seconds: float | None = None,
     ) -> None:
         gap_seconds = self.report_gap_seconds if report_gap_seconds is None else report_gap_seconds
-        with open(path, "wb", buffering=0) as hidraw:
+        try:
+            _CHANNEL.ensure(path)
             for index, report in enumerate(reports):
-                hidraw.write(report)
+                _CHANNEL.send(report)
                 _append_hid_trace_event(
                     {
                         "event": "write",
@@ -398,6 +599,9 @@ class PixyHidService:
                 )
                 if index < len(reports) - 1 and gap_seconds > 0:
                     time.sleep(gap_seconds)
+        except OSError:
+            _CHANNEL.close()
+            raise
 
     def _write_report(self, path: str, report: bytes) -> None:
         # Kept for direct tests and one-off diagnostics.
@@ -440,19 +644,12 @@ class PixyHidService:
         return result
 
     def _send_recv_report_sync(self, path: str, report: bytes) -> bytes | None:
-        fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
         try:
-            _drain_hidraw(fd)
-            os.write(fd, report)
-            readable, _, _ = select.select([fd], [], [], DEFAULT_QUERY_TIMEOUT_SECONDS)
-            if not readable:
-                return None
-            try:
-                return os.read(fd, 64)
-            except BlockingIOError:
-                return None
-        finally:
-            os.close(fd)
+            _CHANNEL.ensure(path)
+            return _CHANNEL.transact(report)
+        except OSError:
+            _CHANNEL.close()
+            raise
 
     def _read_uevent(self, dev: Path) -> str:
         hidraw_name = dev.name
@@ -595,9 +792,35 @@ def _drain_hidraw(fd: int) -> None:
         if not readable:
             return
         try:
-            os.read(fd, 64)
+            if not os.read(fd, 64):
+                return
         except BlockingIOError:
             return
+
+
+def _parse_preset_position(response: bytes | None) -> tuple[float, float] | None:
+    if not response or len(response) < 22 or response[0] != 0x09:
+        return None
+    if (response[1] & 0x1F) != 0x03 or response[2] != 0x01 or response[3] != 0x16:
+        return None
+    if response[9] != 0x01:
+        return None
+    import struct
+
+    pan, tilt, _ = struct.unpack("<fff", response[10:22])
+    return pan, tilt
+
+
+def _is_reply_for(frame: bytes, request: bytes) -> bool:
+    # The device pushes unsolicited state reports (gesture flips, privacy
+    # status); only a frame echoing the request's group/page/index is a reply.
+    return (
+        len(frame) >= 4
+        and frame[0] == 0x09
+        and (frame[1] & 0x1F) == (request[1] & 0x1F)
+        and frame[2] == request[2]
+        and frame[3] == request[3]
+    )
 
 
 def get_pixy_hid_service() -> PixyHidService:

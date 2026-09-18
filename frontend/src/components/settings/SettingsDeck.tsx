@@ -1,13 +1,16 @@
 import { FileCog, ShieldCheck } from "lucide-react";
 
+import type { UseAutomationResult } from "../../hooks/useAutomation";
 import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
+import { AutomationPanel } from "../panels/AutomationPanel";
 import { RuntimeSettingsPanel } from "./RuntimeSettingsPanel";
 
 type Props = {
   privacySafety: UsePrivacySafetyResult;
+  automation: UseAutomationResult;
 };
 
-export function SettingsDeck({ privacySafety }: Props) {
+export function SettingsDeck({ privacySafety, automation }: Props) {
   const settings = privacySafety.settings;
 
   return (
@@ -41,6 +44,7 @@ export function SettingsDeck({ privacySafety }: Props) {
         </div>
       </section>
       <RuntimeSettingsPanel privacySafety={privacySafety} />
+      <AutomationPanel automation={automation} />
     </div>
   );
 }

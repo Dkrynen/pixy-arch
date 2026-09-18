@@ -131,7 +131,17 @@ function pixyHid(): UsePixyHidResult {
     sendPtzVector: vi.fn(),
     recenterPtz: vi.fn(),
     savePtzPreset: vi.fn(),
-    loadPtzPreset: vi.fn()
+    loadPtzPreset: vi.fn(),
+    clearPtzPreset: vi.fn(),
+    capturePowerOnDefault: vi.fn(),
+    disablePowerOnDefault: vi.fn(),
+    goToDefault: vi.fn(),
+    setDenoise: vi.fn(),
+    setWbLock: vi.fn(),
+    setEvLock: vi.fn(),
+    setFocusLock: vi.fn(),
+    setRemotePairing: vi.fn(),
+    setMotorSpeed: vi.fn(),
   };
 }
 
@@ -143,13 +153,19 @@ function audio(): UseAudioResult {
       name: "EMEET PIXY",
       muted: true,
       volume: 10,
+      source_node: null,
+      default_source: null,
+      monitor_running: false,
       reason: null
     },
     isLoading: false,
     pending: false,
     error: null,
     refresh: vi.fn(),
-    setMuted: vi.fn()
+    setMuted: vi.fn(),
+    setVolume: vi.fn(),
+    setDefaultSource: vi.fn(),
+    setMonitorRunning: vi.fn()
   };
 }
 

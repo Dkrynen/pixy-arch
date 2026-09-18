@@ -6,7 +6,8 @@ import {
   ChevronsDown,
   Crosshair,
   Home,
-  Save
+  Save,
+  Trash2
 } from "lucide-react";
 
 import type { ControlGroup } from "../../domains/controls/grouping";
@@ -189,6 +190,8 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
     pixyHid.status?.writable === true && pixyHid.status.known_controls.includes("ptz_preset_save");
   const hidPresetLoadReady =
     pixyHid.status?.writable === true && pixyHid.status.known_controls.includes("ptz_preset_load");
+  const hidPresetClearReady =
+    pixyHid.status?.writable === true && pixyHid.status.known_controls.includes("ptz_preset_clear");
   const hidPresetPending = pixyHid.pendingCommand?.startsWith("ptz-preset-") ?? false;
 
   const moveAxis = async (control: V4L2Control | undefined, direction: number, hidDirection: PtzDirection) => {
@@ -407,6 +410,14 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
     }
   };
 
+  const clearPreset = async () => {
+    if (trackingLocksPtz || !hidPresetClearReady) {
+      return;
+    }
+    await pixyHid.clearPtzPreset((selectedPreset + 1) as PtzPresetSlot);
+    setPresets((current) => current.map((preset, index) => (index === selectedPreset ? null : preset)));
+  };
+
   const disabled = controls.pendingControl !== null;
   const directionBlocked = (control: V4L2Control | undefined) =>
     trackingLocksPtz ||
@@ -576,6 +587,18 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
               <Home size={16} />
               Goto
             </button>
+            {hidPresetClearReady && (
+              <button
+                className="secondary-button"
+                disabled={trackingLocksPtz || disabled || hidPresetPending}
+                onClick={() => void clearPreset()}
+                aria-label="Clear PTZ preset"
+                title="Clear PTZ preset"
+              >
+                <Trash2 size={16} />
+                Clear
+              </button>
+            )}
           </div>
         </div>
       </div>
