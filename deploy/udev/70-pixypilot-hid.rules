@@ -1,3 +1,6 @@
 # EMEET PIXY vendor HID controls for PixyPilot.
-# Grants the local desktop user and plugdev members access to /dev/hidrawN.
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="328f", ATTRS{idProduct}=="00c0", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+# TAG+="uaccess" grants the local seat user rw access to /dev/hidrawN via a
+# logind ACL — the mechanism that works on Arch/systemd. MODE="0660" keeps
+# other users out. Install with tools/setup-all.sh (or copy to
+# /etc/udev/rules.d/ and run `udevadm control --reload && udevadm trigger`).
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="328f", ATTRS{idProduct}=="00c0", MODE="0660", TAG+="uaccess"

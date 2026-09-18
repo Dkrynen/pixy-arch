@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
@@ -154,8 +156,8 @@ async def list_controls(
     device_name: str,
     service: V4L2Service = Depends(get_v4l2_service),
 ) -> list[V4L2Control]:
-    device_path = service.device_path_from_name(device_name)
     try:
+        device_path = service.device_path_from_name(device_name)
         return await service.list_controls(device_path)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -168,8 +170,8 @@ async def set_control(
     request: ControlSetRequest,
     service: V4L2Service = Depends(get_v4l2_service),
 ) -> V4L2Control:
-    device_path = service.device_path_from_name(device_name)
     try:
+        device_path = service.device_path_from_name(device_name)
         return await service.set_control(device_path, control_name, request.value)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -180,8 +182,8 @@ async def list_formats(
     device_name: str,
     service: V4L2Service = Depends(get_v4l2_service),
 ) -> list[VideoFormatOption]:
-    device_path = service.device_path_from_name(device_name)
     try:
+        device_path = service.device_path_from_name(device_name)
         return await service.list_formats(device_path)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -194,8 +196,8 @@ async def set_format(
     service: V4L2Service = Depends(get_v4l2_service),
     video_service: VideoService = Depends(get_video_service),
 ) -> VideoFormatOption:
-    device_path = service.device_path_from_name(device_name)
     try:
+        device_path = service.device_path_from_name(device_name)
         await video_service.stop_streams(device_path)
         return await service.set_format(
             device_path,
@@ -287,6 +289,9 @@ async def stream_video(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    if not os.path.exists(device_path):
+        raise HTTPException(status_code=404, detail=f"{device_path} does not exist (device unplugged?)")
+
     return StreamingResponse(
         video_service.mjpeg_stream(device_path, settings),
         media_type="multipart/x-mixed-replace; boundary=frame",
@@ -372,6 +377,16 @@ async def set_audio_default_source(
 ) -> AudioCommandResult:
     try:
         return await service.set_default_source()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/audio/default-source/restore", response_model=AudioCommandResult)
+async def restore_audio_default_source(
+    service: AudioService = Depends(get_audio_service),
+) -> AudioCommandResult:
+    try:
+        return await service.restore_default_source()
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -828,3 +843,46 @@ async def firmware_status(
     service: FirmwareService = Depends(get_firmware_service),
 ) -> FirmwareStatus:
     return await service.status(check_updates=check_updates)
+
+
+# audio/settings
+
+
+@router.get("/audio/meter", response_model=AudioMonitorResult)
+async def audio_meter_status(
+    service: AudioService = Depends(get_audio_service),
+) -> AudioMonitorResult:
+    return await service.meter_status()
+
+
+@router.post("/audio/meter/start", response_model=AudioMonitorResult)
+async def start_audio_meter(
+    service: AudioService = Depends(get_audio_service),
+) -> AudioMonitorResult:
+    result = await service.start_meter()
+    if not result.ok:
+        raise HTTPException(status_code=404, detail=result.reason)
+    return result
+
+
+@router.post("/audio/meter/stop", response_model=AudioMonitorResult)
+async def stop_audio_meter(
+    service: AudioService = Depends(get_audio_service),
+) -> AudioMonitorResult:
+    return await service.stop_meter()
+
+
+# pcap-imports
+
+
+@router.delete("/pcap-imports/{capture_id}", response_model=PcapImportRecord)
+async def delete_pcap_import(
+    capture_id: str,
+    service: PcapImportService = Depends(get_pcap_import_service),
+) -> PcapImportRecord:
+    try:
+        return await service.delete_capture(capture_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

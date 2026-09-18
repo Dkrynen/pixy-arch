@@ -26,6 +26,7 @@ from pixypilot.domains.pixy_hid.commands import (
     tracking_probe_report,
     tracking_query_report,
     tracking_reports,
+    TRACKING_VALUES,
 )
 
 
@@ -169,16 +170,21 @@ def test_auto_privacy_uses_32_bit_little_endian_seconds() -> None:
 
 
 def test_ptz_direction_reports_match_capture_21() -> None:
-    assert ptz_direction_reports("left")[0][:13] == bytes(
+    # First report disables tracking (same convention as relative/absolute),
+    # the capture-matched move report follows at index 1.
+    assert ptz_direction_reports("left")[0][:9] == bytes(
+        [0x09, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, TRACKING_VALUES["off"]]
+    )
+    assert ptz_direction_reports("left")[1][:13] == bytes(
         [0x09, 0x63, 0x01, 0x19, 0x00, 0x05, 0x00, 0x05, 0x01, 0x00, 0x00, 0x80, 0x3F]
     )
-    assert ptz_direction_reports("right")[0][:13] == bytes(
+    assert ptz_direction_reports("right")[1][:13] == bytes(
         [0x09, 0x63, 0x01, 0x19, 0x00, 0x05, 0x00, 0x05, 0x01, 0x00, 0x00, 0x80, 0xBF]
     )
-    assert ptz_direction_reports("up")[0][:13] == bytes(
+    assert ptz_direction_reports("up")[1][:13] == bytes(
         [0x09, 0x63, 0x01, 0x19, 0x00, 0x05, 0x00, 0x05, 0x02, 0x00, 0x00, 0x80, 0x3F]
     )
-    assert ptz_direction_reports("down")[0][:13] == bytes(
+    assert ptz_direction_reports("down")[1][:13] == bytes(
         [0x09, 0x63, 0x01, 0x19, 0x00, 0x05, 0x00, 0x05, 0x02, 0x00, 0x00, 0x80, 0xBF]
     )
 

@@ -1,0 +1,54 @@
+/* PtzControlPanel-only additions. Shared chrome lives in styles.css (P9). */
+
+.ptz-position {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 22px;
+  margin-bottom: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.ptz-position-label {
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ptz-position strong {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.ptz-position-reading {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+/* Occupied preset slots get a corner pip so saved state is visible at a glance. */
+.ptz-preset-slots button {
+  position: relative;
+}
+
+.ptz-preset-slots button.is-filled::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.ptz-preset-slots button.is-filled.is-selected::after {
+  background: var(--accent-ink);
+}

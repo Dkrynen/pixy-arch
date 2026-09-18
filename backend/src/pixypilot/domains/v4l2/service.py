@@ -117,6 +117,10 @@ class V4L2Service:
                 control = next((item for item in controls if item.name == control_name), control)
 
         self._validate_control_value(control, value)
+        # NOTE (verified 2026-09-18): pan_absolute/tilt_absolute writes are
+        # accepted and persist, but the PIXY gimbal only physically moves while
+        # a video stream holds the device. Use the HID PTZ endpoints (which
+        # send the vendor motor commands) for moves that must always apply.
         try:
             await self.control_writer.set_control(device_path, control.control_id, value)
         except NativeV4L2Error as exc:
@@ -133,6 +137,8 @@ class V4L2Service:
     def _validate_control_value(self, control: V4L2Control, value: int) -> None:
         if control.inactive:
             raise ValueError(f"{control.name} is inactive")
+        if "disabled" in control.flags:
+            raise ValueError(f"{control.name} is disabled by the driver")
         if control.kind == "menu":
             allowed = {option.value for option in control.menu}
             if value not in allowed:

@@ -3,16 +3,17 @@ import { ControlShell } from "./ControlShell";
 
 type Props = {
   control: V4L2Control;
+  allControls?: V4L2Control[];
   disabled: boolean;
   onSetValue: (value: number) => Promise<void>;
 };
 
-export function BoolControl({ control, disabled, onSetValue }: Props) {
+export function BoolControl({ control, allControls, disabled, onSetValue }: Props) {
   const isInactive = control.flags.includes("inactive");
   const checked = control.value === 1;
 
   return (
-    <ControlShell control={control}>
+    <ControlShell control={control} allControls={allControls}>
       <button
         className={`toggle-switch ${checked ? "is-on" : ""}`}
         disabled={disabled || isInactive}

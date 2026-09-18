@@ -8,6 +8,11 @@ export type Box = {
   height: number;
 };
 
+// Maps a click inside the letterboxed (object-contain) preview into the
+// camera's 0..127 focus-metering coordinate space. Corners verified end-to-end
+// (00/7f readback). Note: the official app was captured sending 0x38 (56) for
+// a center click while linear mapping gives 64 — linear 0..127 is kept since
+// corner captures match exactly and the true center encoding is unconfirmed.
 export function focusPointFromContainClick(
   box: Box,
   image: Box,

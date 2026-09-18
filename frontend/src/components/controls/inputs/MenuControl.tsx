@@ -3,15 +3,16 @@ import { ControlShell } from "./ControlShell";
 
 type Props = {
   control: V4L2Control;
+  allControls?: V4L2Control[];
   disabled: boolean;
   onSetValue: (value: number) => Promise<void>;
 };
 
-export function MenuControl({ control, disabled, onSetValue }: Props) {
+export function MenuControl({ control, allControls, disabled, onSetValue }: Props) {
   const isInactive = control.flags.includes("inactive");
 
   return (
-    <ControlShell control={control}>
+    <ControlShell control={control} allControls={allControls}>
       <select
         className="menu-select"
         value={control.value}

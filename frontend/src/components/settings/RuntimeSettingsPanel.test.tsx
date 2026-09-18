@@ -65,4 +65,37 @@ describe("RuntimeSettingsPanel", () => {
     expect(screen.getAllByText("restart").length).toBeGreaterThan(0);
     expect(screen.getAllByText("live").length).toBeGreaterThan(0);
   });
+
+  it("groups rows under their section headers", () => {
+    render(<RuntimeSettingsPanel privacySafety={privacySafety()} />);
+
+    expect(screen.getByText("Safety")).toBeInTheDocument();
+    expect(screen.getByText("Backend")).toBeInTheDocument();
+    expect(screen.getByText("Frontend")).toBeInTheDocument();
+    expect(screen.getByText("Storage")).toBeInTheDocument();
+    expect(screen.getByText("HID")).toBeInTheDocument();
+  });
+
+  it("keeps the row open and shows the error when saving fails", async () => {
+    const user = userEvent.setup();
+    const saveSettings = vi.fn().mockRejectedValue(new Error("disk full"));
+
+    render(
+      <RuntimeSettingsPanel
+        privacySafety={privacySafety({ saveSettings, settingsError: "disk full" })}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit HID gap" }));
+    const input = screen.getByDisplayValue("25");
+    await user.clear(input);
+    await user.type(input, "30");
+    await user.click(screen.getByRole("button", { name: "Save HID gap" }));
+
+    expect(saveSettings).toHaveBeenCalledWith({ hid: { report_gap_ms: 30 } });
+    expect(screen.getByText("disk full")).toBeInTheDocument();
+    expect(screen.queryByText(/saved/)).not.toBeInTheDocument();
+    // Row stays in edit mode so the draft isn't lost.
+    expect(screen.getByDisplayValue("30")).toBeInTheDocument();
+  });
 });

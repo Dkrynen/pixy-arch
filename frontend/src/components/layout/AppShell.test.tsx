@@ -190,7 +190,9 @@ function audio(): UseAudioResult {
     setMuted: vi.fn(),
     setVolume: vi.fn(),
     setDefaultSource: vi.fn(),
-    setMonitorRunning: vi.fn()
+    setMonitorRunning: vi.fn(),
+    setMeterRunning: vi.fn(),
+    restoreDefaultSource: vi.fn()
   };
 }
 

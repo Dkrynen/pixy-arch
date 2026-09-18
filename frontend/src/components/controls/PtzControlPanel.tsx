@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import {
   ChevronsLeft,
   ChevronsRight,
@@ -12,16 +12,38 @@ import {
 
 import type { ControlGroup } from "../../domains/controls/grouping";
 import { controlValueText } from "../../domains/controls/grouping";
+import {
+  formatDegrees,
+  motorPositionFromQuery,
+  motorSpeedFromQuery,
+  presetStateFromQuery,
+  PTZ_MOTOR_SPEED_DPS,
+  PTZ_PAN_RANGE_DEGREES,
+  PTZ_TILT_RANGE_DEGREES
+} from "../../domains/ptz/hidTelemetry";
 import { isCenteredVector, ptzVectorFromPadPoint, vectorPadPosition } from "../../domains/ptz/vectorPad";
 import type { UseControlsResult } from "../../hooks/useControls";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
-import type { PtzDirection, PtzPresetSlot, PtzVector, V4L2Control } from "../../types/api";
+import { fetchPixyHidQuery } from "../../lib/apiClient";
+import type {
+  PixyHidQueryName,
+  PixyHidRawQueryResult,
+  PtzDirection,
+  PtzPresetSlot,
+  PtzVector,
+  V4L2Control
+} from "../../types/api";
 import { ControlRenderer } from "./ControlRenderer";
+import "./PtzControlPanel.css";
+
+type HidQueryFn = (name: PixyHidQueryName) => Promise<PixyHidRawQueryResult>;
 
 type Props = {
   group: ControlGroup;
   controls: UseControlsResult;
   pixyHid: UsePixyHidResult;
+  /** Injectable for tests; defaults to the live pixy-hid query endpoint. */
+  queryHid?: HidQueryFn;
 };
 
 const PTZ_CONTROL_NAMES = {
@@ -30,10 +52,17 @@ const PTZ_CONTROL_NAMES = {
   zoom: "zoom_absolute"
 } as const;
 
+const PRESET_QUERY_NAMES: PixyHidQueryName[] = ["preset_1_state", "preset_2_state", "preset_3_state"];
+
 type PtzPreset = {
   pan: number;
   tilt: number;
-  zoom: number;
+  zoom: number | null;
+};
+
+type MotorPosition = {
+  pan: number;
+  tilt: number;
 };
 
 const SPEEDS = [1, 2, 3, 4, 5];
@@ -54,6 +83,8 @@ const PTZ_JOG_REPEAT_MS_BY_SPEED: Record<number, number> = {
   5: 110
 };
 const PTZ_VECTOR_DRAG_THROTTLE_MS = 120;
+const PTZ_TELEMETRY_INTERVAL_MS = 1500;
+const PTZ_TELEMETRY_SETTLE_MS = 650;
 
 function findControl(group: ControlGroup, name: string): V4L2Control | undefined {
   return group.controls.find((control) => control.name === name);
@@ -63,6 +94,10 @@ function clamp(value: number, control: V4L2Control): number {
   const min = control.min ?? value;
   const max = control.max ?? value;
   return Math.min(max, Math.max(min, value));
+}
+
+function clampDegrees(value: number, range: number): number {
+  return Math.min(range, Math.max(-range, value));
 }
 
 function stepFor(control: V4L2Control | undefined): number {
@@ -93,6 +128,13 @@ function ptzVectorForDirection(direction: PtzDirection, speed: number): PtzVecto
   }
   return { x: 0, y: -magnitude };
 }
+
+const JOG_KEYS: Record<string, { direction: PtzDirection; axis: "pan" | "tilt"; sign: number }> = {
+  ArrowLeft: { direction: "left", axis: "pan", sign: -1 },
+  ArrowRight: { direction: "right", axis: "pan", sign: 1 },
+  ArrowUp: { direction: "up", axis: "tilt", sign: 1 },
+  ArrowDown: { direction: "down", axis: "tilt", sign: -1 }
+};
 
 type AxisControlProps = {
   label: string;
@@ -125,6 +167,12 @@ function AxisControl({ label, control, disabled, onSetValue }: AxisControlProps)
   const step = stepFor(control);
   const inactive = control.flags.includes("inactive");
 
+  const commit = () => {
+    if (draftValue !== control.value) {
+      void onSetValue(draftValue);
+    }
+  };
+
   return (
     <div className={`ptz-axis ${inactive ? "is-inactive" : ""}`}>
       <div className="ptz-axis-header">
@@ -143,10 +191,11 @@ function AxisControl({ label, control, disabled, onSetValue }: AxisControlProps)
         value={draftValue}
         disabled={disabled || inactive}
         onChange={(event) => setDraftValue(Number(event.target.value))}
-        onBlur={() => void onSetValue(draftValue)}
+        onPointerUp={commit}
+        onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
-            void onSetValue(draftValue);
+            commit();
           }
         }}
       />
@@ -159,8 +208,57 @@ function AxisControl({ label, control, disabled, onSetValue }: AxisControlProps)
   );
 }
 
-export function PtzControlPanel({ group, controls, pixyHid }: Props) {
+type HidAxisSliderProps = {
+  label: string;
+  axis: "pan" | "tilt";
+  range: number;
+  /** Current draft or measured degrees; null while the gimbal position is unknown. */
+  value: number | null;
+  disabled: boolean;
+  onDraft: (axis: "pan" | "tilt", degrees: number) => void;
+  onCommit: (axis: "pan" | "tilt") => void;
+};
+
+function HidAxisSlider({ label, axis, range, value, disabled, onDraft, onCommit }: HidAxisSliderProps) {
+  return (
+    <div className={`ptz-axis ${value === null ? "is-missing" : ""}`}>
+      <div className="ptz-axis-header">
+        <div className="ptz-axis-copy">
+          <span>{label}</span>
+          <small>{axis} · gimbal</small>
+        </div>
+        <strong>{formatDegrees(value)}</strong>
+      </div>
+      <input
+        className="range-input ptz-axis-range"
+        type="range"
+        min={-range}
+        max={range}
+        step={1}
+        value={value ?? 0}
+        disabled={disabled || value === null}
+        aria-label={`${label} position`}
+        onChange={(event) => onDraft(axis, Number(event.target.value))}
+        onPointerUp={() => onCommit(axis)}
+        onBlur={() => onCommit(axis)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            onCommit(axis);
+          }
+        }}
+      />
+      <div className="ptz-axis-scale">
+        <span>{-range}°</span>
+        <span>0°</span>
+        <span>{range}°</span>
+      </div>
+    </div>
+  );
+}
+
+export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
   const Icon = group.icon;
+  const runHidQuery = queryHid ?? fetchPixyHidQuery;
   const trackingLocksPtz = pixyHid.trackingMode === "tracking";
   const pan = findControl(group, PTZ_CONTROL_NAMES.pan);
   const tilt = findControl(group, PTZ_CONTROL_NAMES.tilt);
@@ -169,30 +267,165 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
   const auxiliaryControls = group.controls.filter(
     (control) => !primaryControlNames.has(control.name) && isUsableAuxiliaryControl(control)
   );
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(3);
   const [selectedPreset, setSelectedPreset] = useState(0);
   const [presets, setPresets] = useState<(PtzPreset | null)[]>([null, null, null]);
+  const [presetTruthLoaded, setPresetTruthLoaded] = useState(false);
+  const [motorPosition, setMotorPosition] = useState<MotorPosition | null>(null);
+  const [axisDrafts, setAxisDrafts] = useState<{ pan: number | null; tilt: number | null }>({
+    pan: null,
+    tilt: null
+  });
   const [activeVector, setActiveVector] = useState<PtzVector | null>(null);
   const jogActiveRef = useRef(false);
   const jogTimerRef = useRef<number | null>(null);
+  const telemetryTimerRef = useRef<number | null>(null);
   const vectorDragInFlightRef = useRef(false);
   const vectorDragLastSentAtRef = useRef(0);
   const vectorMotionActiveRef = useRef(false);
-  const hidPtzReady =
-    pixyHid.status?.writable === true && pixyHid.status.known_controls.includes("ptz_direction");
-  const hidPtzRelativeReady =
-    pixyHid.status?.writable === true && pixyHid.status.known_controls.includes("ptz_relative");
-  const hidPtzRecenterReady =
-    pixyHid.status?.writable === true && pixyHid.status.known_controls.includes("ptz_recenter");
-  const hidPtzVectorReady =
-    pixyHid.status?.writable === true && pixyHid.status.known_controls.includes("ptz_vector");
-  const hidPresetSaveReady =
-    pixyHid.status?.writable === true && pixyHid.status.known_controls.includes("ptz_preset_save");
-  const hidPresetLoadReady =
-    pixyHid.status?.writable === true && pixyHid.status.known_controls.includes("ptz_preset_load");
-  const hidPresetClearReady =
-    pixyHid.status?.writable === true && pixyHid.status.known_controls.includes("ptz_preset_clear");
+  const hidPtzVectorReadyRef = useRef(false);
+  const hidWritable = pixyHid.status?.writable === true;
+  const knownControls = pixyHid.status?.known_controls ?? [];
+  const hidPtzReady = hidWritable && knownControls.includes("ptz_direction");
+  const hidPtzRelativeReady = hidWritable && knownControls.includes("ptz_relative");
+  const hidPtzAbsoluteReady = hidWritable && knownControls.includes("ptz_absolute");
+  const hidPtzRecenterReady = hidWritable && knownControls.includes("ptz_recenter");
+  const hidPtzVectorReady = hidWritable && knownControls.includes("ptz_vector");
+  const hidPresetSaveReady = hidWritable && knownControls.includes("ptz_preset_save");
+  const hidPresetLoadReady = hidWritable && knownControls.includes("ptz_preset_load");
+  const hidPresetClearReady = hidWritable && knownControls.includes("ptz_preset_clear");
+  const hidMotorSpeedReady = hidWritable && knownControls.includes("motor_speed");
   const hidPresetPending = pixyHid.pendingCommand?.startsWith("ptz-preset-") ?? false;
+  // Track vector readiness in a ref so the unmount cleanup (a mount-time
+  // closure) still sends the zero-vector stop after the HID comes online late.
+  hidPtzVectorReadyRef.current = hidPtzVectorReady;
+
+  const pollTelemetry = useCallback(async () => {
+    const [panResult, tiltResult] = await Promise.all([
+      runHidQuery("motor_pos_pan"),
+      runHidQuery("motor_pos_tilt")
+    ]);
+    const panPosition = motorPositionFromQuery(panResult);
+    const tiltPosition = motorPositionFromQuery(tiltResult);
+    if (panPosition && tiltPosition) {
+      setMotorPosition({ pan: panPosition.current, tilt: tiltPosition.current });
+    }
+  }, [runHidQuery]);
+
+  const scheduleTelemetryPoll = useCallback(() => {
+    if (telemetryTimerRef.current !== null) {
+      window.clearTimeout(telemetryTimerRef.current);
+    }
+    telemetryTimerRef.current = window.setTimeout(() => {
+      telemetryTimerRef.current = null;
+      void pollTelemetry().catch(() => undefined);
+    }, PTZ_TELEMETRY_SETTLE_MS);
+  }, [pollTelemetry]);
+
+  // Live gimbal position: polled while the HID channel is writable.
+  useEffect(() => {
+    if (!hidWritable) {
+      setMotorPosition(null);
+      return;
+    }
+    const tick = async () => {
+      try {
+        await pollTelemetry();
+      } catch {
+        // Telemetry is best-effort; keep the last good reading.
+      }
+    };
+    void tick();
+    const intervalId = window.setInterval(() => void tick(), PTZ_TELEMETRY_INTERVAL_MS);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hidWritable, pollTelemetry]);
+
+  // Hydrate preset slots from the device so filled/empty state is real.
+  useEffect(() => {
+    if (!hidWritable) {
+      setPresetTruthLoaded(false);
+      return;
+    }
+    let cancelled = false;
+    const hydrate = async () => {
+      const results = await Promise.all(
+        PRESET_QUERY_NAMES.map((name) => runHidQuery(name).catch(() => null))
+      );
+      if (cancelled) {
+        return;
+      }
+      const states = results.map((result) => (result ? presetStateFromQuery(result) : null));
+      if (states.every((state) => state === null)) {
+        return;
+      }
+      setPresetTruthLoaded(true);
+      setPresets((current) =>
+        current.map((preset, index) => {
+          const state = states[index];
+          if (state?.saved) {
+            return { pan: state.pan, tilt: state.tilt, zoom: preset?.zoom ?? null };
+          }
+          return null;
+        })
+      );
+    };
+    void hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, [hidWritable, runHidQuery]);
+
+  // Preselect the speed button closest to the device's configured motor speed.
+  useEffect(() => {
+    if (!hidWritable || !hidMotorSpeedReady) {
+      return;
+    }
+    let cancelled = false;
+    void runHidQuery("motor_speed_pan")
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        const dps = motorSpeedFromQuery(result);
+        if (dps === null || dps <= 0) {
+          return;
+        }
+        setSpeed(
+          SPEEDS.reduce((best, candidate) =>
+            Math.abs(PTZ_MOTOR_SPEED_DPS[candidate] - dps) < Math.abs(PTZ_MOTOR_SPEED_DPS[best] - dps)
+              ? candidate
+              : best
+          )
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [hidWritable, hidMotorSpeedReady, runHidQuery]);
+
+  const refreshPresetSlot = useCallback(
+    async (index: number) => {
+      const result = await runHidQuery(PRESET_QUERY_NAMES[index]).catch(() => null);
+      const state = result ? presetStateFromQuery(result) : null;
+      if (!state) {
+        return;
+      }
+      setPresetTruthLoaded(true);
+      setPresets((current) =>
+        current.map((preset, presetIndex) =>
+          presetIndex === index
+            ? state.saved
+              ? { pan: state.pan, tilt: state.tilt, zoom: preset?.zoom ?? null }
+              : null
+            : preset
+        )
+      );
+    },
+    [runHidQuery]
+  );
 
   const moveAxis = async (control: V4L2Control | undefined, direction: number, hidDirection: PtzDirection) => {
     if (trackingLocksPtz) {
@@ -200,10 +433,12 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
     }
     if (hidPtzRelativeReady) {
       await pixyHid.sendPtzRelative(hidDirection, PTZ_RELATIVE_DEGREES_BY_SPEED[speed] ?? 3);
+      scheduleTelemetryPoll();
       return;
     }
     if (hidPtzReady) {
       await pixyHid.sendPtzDirection(hidDirection);
+      scheduleTelemetryPoll();
       return;
     }
     if (hidPtzVectorReady) {
@@ -220,13 +455,14 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
   };
 
   const stopPtzVector = async () => {
-    if (!vectorMotionActiveRef.current || !hidPtzVectorReady) {
+    if (!vectorMotionActiveRef.current || !hidPtzVectorReadyRef.current) {
       setActiveVector(null);
       return;
     }
     vectorMotionActiveRef.current = false;
     setActiveVector(null);
     await pixyHid.sendPtzVector({ x: 0, y: 0, z: 0 });
+    scheduleTelemetryPoll();
   };
 
   const cancelJogTimers = () => {
@@ -242,7 +478,17 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
     void stopPtzVector();
   };
 
-  useEffect(() => stopJog, []);
+  useEffect(
+    () => () => {
+      stopJog();
+      if (telemetryTimerRef.current !== null) {
+        window.clearTimeout(telemetryTimerRef.current);
+        telemetryTimerRef.current = null;
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   const startJog = (control: V4L2Control | undefined, direction: number, hidDirection: PtzDirection) => {
     if (trackingLocksPtz) {
@@ -281,6 +527,21 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
     await moveAxis(control, direction, hidDirection);
   };
 
+  const padKeyJog = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Home") {
+      event.preventDefault();
+      void centerPtz();
+      return;
+    }
+    const jog = JOG_KEYS[event.key];
+    if (!jog) {
+      return;
+    }
+    event.preventDefault();
+    const control = jog.axis === "pan" ? pan : tilt;
+    void moveAxis(control, jog.sign, jog.direction);
+  };
+
   const centerPtz = async () => {
     if (trackingLocksPtz) {
       return;
@@ -289,6 +550,7 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
     await stopPtzVector();
     if (hidPtzRecenterReady) {
       await pixyHid.recenterPtz();
+      scheduleTelemetryPoll();
       if (zoom && !zoom.flags.includes("inactive")) {
         await controls.setValue(zoom.name, clamp(zoom.default ?? zoom.min ?? 0, zoom));
       }
@@ -364,15 +626,70 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
     await stopPtzVector();
   };
 
+  const axisValue = (axis: "pan" | "tilt"): number | null =>
+    axisDrafts[axis] ?? motorPosition?.[axis] ?? null;
+
+  const draftAxis = (axis: "pan" | "tilt", degrees: number) => {
+    setAxisDrafts((current) => ({ ...current, [axis]: degrees }));
+  };
+
+  const commitAxis = async (axis: "pan" | "tilt") => {
+    if (!hidPtzAbsoluteReady || trackingLocksPtz) {
+      setAxisDrafts((current) => ({ ...current, [axis]: null }));
+      return;
+    }
+    if (axisDrafts[axis] === null) {
+      return;
+    }
+    const nextPan = axis === "pan" ? axisDrafts[axis] : axisValue("pan");
+    const nextTilt = axis === "tilt" ? axisDrafts[axis] : axisValue("tilt");
+    setAxisDrafts({ pan: null, tilt: null });
+    if (nextPan === null || nextTilt === null) {
+      return;
+    }
+    const targetPan = clampDegrees(nextPan, PTZ_PAN_RANGE_DEGREES);
+    const targetTilt = clampDegrees(nextTilt, PTZ_TILT_RANGE_DEGREES);
+    setMotorPosition({ pan: targetPan, tilt: targetTilt });
+    await pixyHid.sendPtzAbsolute(targetPan, targetTilt);
+    scheduleTelemetryPoll();
+  };
+
+  const applySpeed = (value: number) => {
+    setSpeed(value);
+    if (!hidMotorSpeedReady) {
+      return;
+    }
+    const degreesPerSecond = PTZ_MOTOR_SPEED_DPS[value] ?? 60;
+    void pixyHid
+      .setMotorSpeed(1, degreesPerSecond)
+      .then(() => pixyHid.setMotorSpeed(2, degreesPerSecond))
+      .catch(() => undefined);
+  };
+
   const savePreset = async () => {
     if (trackingLocksPtz) {
       return;
     }
-    if (!pan || !tilt || !zoom) {
-      return;
-    }
     if (hidPresetSaveReady) {
       await pixyHid.savePtzPreset((selectedPreset + 1) as PtzPresetSlot);
+      // Optimistic fill from the measured position; refreshPresetSlot replaces it
+      // with the device's stored coordinates when the query succeeds.
+      setPresets((current) =>
+        current.map((preset, index) =>
+          index === selectedPreset
+            ? {
+                pan: preset?.pan ?? motorPosition?.pan ?? 0,
+                tilt: preset?.tilt ?? motorPosition?.tilt ?? 0,
+                zoom: zoom?.value ?? null
+              }
+            : preset
+        )
+      );
+      await refreshPresetSlot(selectedPreset);
+      return;
+    }
+    if (!pan || !tilt || !zoom) {
+      return;
     }
     setPresets((current) =>
       current.map((preset, index) =>
@@ -386,12 +703,16 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
       return;
     }
     const preset = presets[selectedPreset];
-    if ((!preset && !hidPresetLoadReady) || controls.pendingControl !== null) {
+    if (controls.pendingControl !== null) {
       return;
     }
     if (hidPresetLoadReady) {
+      if (presetTruthLoaded && !preset) {
+        return;
+      }
       await pixyHid.loadPtzPreset((selectedPreset + 1) as PtzPresetSlot);
-      if (preset && zoom && !zoom.flags.includes("inactive")) {
+      scheduleTelemetryPoll();
+      if (preset?.zoom !== null && preset?.zoom !== undefined && zoom && !zoom.flags.includes("inactive")) {
         await controls.setValue(zoom.name, clamp(preset.zoom, zoom));
       }
       return;
@@ -405,7 +726,7 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
     if (tilt && !tilt.flags.includes("inactive")) {
       await controls.setValue(tilt.name, clamp(preset.tilt, tilt));
     }
-    if (zoom && !zoom.flags.includes("inactive")) {
+    if (preset.zoom !== null && zoom && !zoom.flags.includes("inactive")) {
       await controls.setValue(zoom.name, clamp(preset.zoom, zoom));
     }
   };
@@ -416,6 +737,18 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
     }
     await pixyHid.clearPtzPreset((selectedPreset + 1) as PtzPresetSlot);
     setPresets((current) => current.map((preset, index) => (index === selectedPreset ? null : preset)));
+    await refreshPresetSlot(selectedPreset);
+  };
+
+  const presetTitle = (preset: PtzPreset | null, index: number): string => {
+    if (preset) {
+      // Device presets are stored in degrees; V4L2 fallback presets keep raw
+      // control units, so only the HID path gets a coordinate readout.
+      return hidPresetSaveReady || hidPresetLoadReady
+        ? `Preset ${index + 1} · pan ${formatDegrees(preset.pan)} tilt ${formatDegrees(preset.tilt)}`
+        : `Preset ${index + 1} saved`;
+    }
+    return presetTruthLoaded ? `Preset ${index + 1} · empty` : `Preset ${index + 1}`;
   };
 
   const disabled = controls.pendingControl !== null;
@@ -424,8 +757,10 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
     (hidPtzRelativeReady || hidPtzVectorReady || hidPtzReady
       ? disabled && !jogActiveRef.current
       : isBlocked(control, controls.pendingControl));
-  const vectorPadDisabled = trackingLocksPtz || disabled || (!hidPtzRecenterReady && !hidPtzVectorReady && !pan && !tilt);
+  const vectorPadDisabled =
+    trackingLocksPtz || disabled || (!hidPtzRecenterReady && !hidPtzVectorReady && !pan && !tilt);
   const activeVectorPosition = activeVector ? vectorPadPosition(activeVector) : null;
+  const touchNone = { touchAction: "none" } as const;
 
   return (
     <section className={`control-panel ptz-panel accent-${group.accent}`}>
@@ -438,11 +773,18 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
           Tracking Mode owns PTZ. Switch Control Mode to Standard before moving, zooming, homing, or using presets.
         </div>
       )}
+      {pixyHid.error && (
+        <div className="mini-error" role="alert">
+          {pixyHid.error}
+        </div>
+      )}
+      {!hidWritable && pixyHid.status?.reason && <div className="mini-warning">{pixyHid.status.reason}</div>}
 
       <div className="ptz-deck">
-        <div className="ptz-pad" aria-label="Pan and tilt controls">
+        <div className="ptz-pad" aria-label="Pan and tilt controls" onKeyDown={padKeyJog}>
           <button
             className="ptz-direction ptz-up"
+            style={touchNone}
             disabled={directionBlocked(tilt)}
             onPointerDown={() => startJog(tilt, 1, "up")}
             onPointerUp={stopJog}
@@ -456,6 +798,7 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
           </button>
           <button
             className="ptz-direction ptz-right"
+            style={touchNone}
             disabled={directionBlocked(pan)}
             onPointerDown={() => startJog(pan, 1, "right")}
             onPointerUp={stopJog}
@@ -469,6 +812,7 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
           </button>
           <button
             className="ptz-direction ptz-down"
+            style={touchNone}
             disabled={directionBlocked(tilt)}
             onPointerDown={() => startJog(tilt, -1, "down")}
             onPointerUp={stopJog}
@@ -482,6 +826,7 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
           </button>
           <button
             className="ptz-direction ptz-left"
+            style={touchNone}
             disabled={directionBlocked(pan)}
             onPointerDown={() => startJog(pan, -1, "left")}
             onPointerUp={stopJog}
@@ -495,6 +840,7 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
           </button>
           <button
             className="ptz-center"
+            style={touchNone}
             disabled={vectorPadDisabled}
             onPointerDown={(event) => {
               const vector = updateVectorPreview(event);
@@ -528,19 +874,58 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
         </div>
 
         <div className="ptz-axis-bank">
+          <div className="ptz-position" title="Live gimbal position">
+            <span className="ptz-position-label">Gimbal</span>
+            {hidWritable ? (
+              motorPosition ? (
+                <strong>
+                  pan {formatDegrees(motorPosition.pan)} · tilt {formatDegrees(motorPosition.tilt)}
+                </strong>
+              ) : (
+                <span className="ptz-position-reading">reading…</span>
+              )
+            ) : (
+              <span className="ptz-position-reading">HID read-only</span>
+            )}
+          </div>
           <div className="ptz-readouts">
-            <AxisControl
-              label="Pan"
-              control={pan}
-              disabled={trackingLocksPtz || controls.pendingControl === pan?.name}
-              onSetValue={(value) => controls.setValue(PTZ_CONTROL_NAMES.pan, value)}
-            />
-            <AxisControl
-              label="Tilt"
-              control={tilt}
-              disabled={trackingLocksPtz || controls.pendingControl === tilt?.name}
-              onSetValue={(value) => controls.setValue(PTZ_CONTROL_NAMES.tilt, value)}
-            />
+            {hidPtzAbsoluteReady ? (
+              <>
+                <HidAxisSlider
+                  label="Pan"
+                  axis="pan"
+                  range={PTZ_PAN_RANGE_DEGREES}
+                  value={axisValue("pan")}
+                  disabled={trackingLocksPtz}
+                  onDraft={draftAxis}
+                  onCommit={(axis) => void commitAxis(axis)}
+                />
+                <HidAxisSlider
+                  label="Tilt"
+                  axis="tilt"
+                  range={PTZ_TILT_RANGE_DEGREES}
+                  value={axisValue("tilt")}
+                  disabled={trackingLocksPtz}
+                  onDraft={draftAxis}
+                  onCommit={(axis) => void commitAxis(axis)}
+                />
+              </>
+            ) : (
+              <>
+                <AxisControl
+                  label="Pan"
+                  control={pan}
+                  disabled={trackingLocksPtz || controls.pendingControl === pan?.name}
+                  onSetValue={(value) => controls.setValue(PTZ_CONTROL_NAMES.pan, value)}
+                />
+                <AxisControl
+                  label="Tilt"
+                  control={tilt}
+                  disabled={trackingLocksPtz || controls.pendingControl === tilt?.name}
+                  onSetValue={(value) => controls.setValue(PTZ_CONTROL_NAMES.tilt, value)}
+                />
+              </>
+            )}
             <AxisControl
               label="Zoom"
               control={zoom}
@@ -556,11 +941,11 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
             {presets.map((preset, index) => (
               <button
                 key={index}
-                className={selectedPreset === index ? "is-selected" : ""}
+                className={`${selectedPreset === index ? "is-selected" : ""} ${preset ? "is-filled" : ""}`}
                 onClick={() => setSelectedPreset(index)}
                 aria-pressed={selectedPreset === index}
                 aria-label={`Preset ${index + 1}`}
-                title={preset ? `Preset ${index + 1} saved` : `Preset ${index + 1} empty`}
+                title={presetTitle(preset, index)}
               >
                 {index + 1}
               </button>
@@ -569,7 +954,12 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
           <div className="ptz-preset-actions">
             <button
               className="secondary-button"
-              disabled={trackingLocksPtz || disabled || hidPresetPending || !pan || !tilt || !zoom}
+              disabled={
+                trackingLocksPtz ||
+                disabled ||
+                hidPresetPending ||
+                (!hidPresetSaveReady && (!pan || !tilt || !zoom))
+              }
               onClick={() => void savePreset()}
               aria-label="Save PTZ preset"
               title="Save PTZ preset"
@@ -579,7 +969,13 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
             </button>
             <button
               className="secondary-button"
-              disabled={trackingLocksPtz || disabled || hidPresetPending || (!hidPresetLoadReady && !presets[selectedPreset])}
+              disabled={
+                trackingLocksPtz ||
+                disabled ||
+                hidPresetPending ||
+                (!hidPresetLoadReady && !presets[selectedPreset]) ||
+                (hidPresetLoadReady && presetTruthLoaded && !presets[selectedPreset])
+              }
               onClick={() => void gotoPreset()}
               aria-label="Goto PTZ preset"
               title="Goto PTZ preset"
@@ -611,9 +1007,10 @@ export function PtzControlPanel({ group, controls, pixyHid }: Props) {
               <button
                 key={value}
                 className={speed === value ? "is-selected" : ""}
-                onClick={() => setSpeed(value)}
+                onClick={() => applySpeed(value)}
                 aria-pressed={speed === value}
                 aria-label={`Speed ${value}`}
+                title={hidMotorSpeedReady ? `Motor speed ${PTZ_MOTOR_SPEED_DPS[value]}°/s` : `Speed ${value}`}
               >
                 {value}
               </button>

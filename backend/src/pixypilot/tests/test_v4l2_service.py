@@ -67,6 +67,16 @@ class DynamicControlService(StaticControlService):
         return self.static_controls
 
 
+class DynamicWhiteBalanceService(StaticControlService):
+    async def list_controls(self, device_path: str) -> list[V4L2Control]:
+        if self.control_writer.calls:
+            return [
+                control.model_copy(update={"value": 0}) if control.name == "white_balance_automatic" else control
+                for control in self.static_controls
+            ]
+        return self.static_controls
+
+
 def make_control(**overrides: object) -> V4L2Control:
     data = {
         "name": "brightness",
@@ -119,6 +129,13 @@ def test_rejects_inactive_control() -> None:
 
     with pytest.raises(ValueError, match="inactive"):
         service._validate_control_value(make_control(flags=["inactive"]), 10)
+
+
+def test_rejects_driver_disabled_control() -> None:
+    service = V4L2Service()
+
+    with pytest.raises(ValueError, match="disabled by the driver"):
+        service._validate_control_value(make_control(flags=["disabled"]), 10)
 
 
 async def test_set_control_uses_native_writer_and_returns_updated_value() -> None:
@@ -182,6 +199,95 @@ async def test_set_focus_absolute_switches_autofocus_to_manual_first() -> None:
         ("/dev/video0", "0x009a090a", 300),
     ]
     assert updated.value == 300
+
+
+async def test_set_white_balance_temperature_locks_awb_first() -> None:
+    writer = FakeControlWriter()
+    controls = [
+        make_control(
+            name="white_balance_automatic",
+            control_id="0x0098090c",
+            kind="bool",
+            value=1,
+            min=0,
+            max=1,
+            step=1,
+        ),
+        make_control(
+            name="white_balance_temperature",
+            control_id="0x0098091a",
+            value=5000,
+            min=2300,
+            max=7500,
+            step=1,
+        ),
+    ]
+    service = DynamicWhiteBalanceService(controls, writer)
+
+    updated = await service.set_control("/dev/video0", "white_balance_temperature", 4000)
+
+    assert writer.calls == [
+        ("/dev/video0", "0x0098090c", 0),
+        ("/dev/video0", "0x0098091a", 4000),
+    ]
+    assert updated.value == 4000
+
+
+async def test_set_dependent_control_skips_parent_write_when_already_manual() -> None:
+    writer = FakeControlWriter()
+    controls = [
+        make_control(
+            name="auto_exposure",
+            control_id="0x009a0901",
+            kind="menu",
+            value=1,
+            value_label="Manual Mode",
+            menu=[MenuOption(value=1, label="Manual Mode"), MenuOption(value=3, label="Aperture Priority Mode")],
+        ),
+        make_control(
+            name="exposure_time_absolute",
+            control_id="0x009a0902",
+            value=300,
+            min=1,
+            max=5000,
+            step=1,
+        ),
+    ]
+    service = StaticControlService(controls, writer)
+
+    updated = await service.set_control("/dev/video0", "exposure_time_absolute", 500)
+
+    assert writer.calls == [("/dev/video0", "0x009a0902", 500)]
+    assert updated.value == 500
+
+
+async def test_dependent_write_rejected_when_parent_cannot_unlock() -> None:
+    writer = FakeControlWriter()
+    controls = [
+        make_control(
+            name="auto_exposure",
+            control_id="0x009a0901",
+            kind="menu",
+            value=3,
+            value_label="Aperture Priority Mode",
+            menu=[MenuOption(value=3, label="Aperture Priority Mode")],
+        ),
+        make_control(
+            name="exposure_time_absolute",
+            control_id="0x009a0902",
+            value=300,
+            min=1,
+            max=5000,
+            step=1,
+            flags=["inactive"],
+        ),
+    ]
+    service = StaticControlService(controls, writer)
+
+    with pytest.raises(ValueError, match="auto_exposure must be one of"):
+        await service.set_control("/dev/video0", "exposure_time_absolute", 500)
+
+    assert writer.calls == []
 
 
 async def test_set_format_uses_native_writer_after_validating_format() -> None:

@@ -3,26 +3,50 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchVirtualCamStatus, startVirtualCam, stopVirtualCam } from "../lib/apiClient";
 import type { VirtualCamStartRequest, VirtualCamStatus } from "../types/api";
 
+// The backend reports more than the shared VirtualCamStatus type covers; keep
+// the extra runtime fields local to the virtual-cam workstream instead of
+// editing the shared api types.
+export type VirtualCamRuntimeStatus = VirtualCamStatus & {
+  output_width: number | null;
+  output_height: number | null;
+  output_pixel_format: string | null;
+  fps: number | null;
+  frames: number | null;
+  consumers: number;
+  last_error: string | null;
+};
+
+// VirtualCamStartRequest does not carry input_format yet; the backend accepts
+// it, so extend the request locally and pass it through.
+export type VirtualCamStartOptions = VirtualCamStartRequest & {
+  input_format?: string;
+};
+
 export type UseVirtualCamResult = {
-  status: VirtualCamStatus | null;
+  status: VirtualCamRuntimeStatus | null;
   isLoading: boolean;
   pending: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  start: (request: VirtualCamStartRequest) => Promise<void>;
+  start: (request: VirtualCamStartOptions) => Promise<void>;
   stop: () => Promise<void>;
 };
 
+const RUNNING_POLL_MS = 3000;
+
 export function useVirtualCam(): UseVirtualCamResult {
-  const [status, setStatus] = useState<VirtualCamStatus | null>(null);
+  const [status, setStatus] = useState<VirtualCamRuntimeStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    setError(null);
     try {
-      setStatus(await fetchVirtualCamStatus());
+      const next = (await fetchVirtualCamStatus()) as VirtualCamRuntimeStatus;
+      setStatus(next);
+      // A crashed pipeline surfaces through last_error on the status, not as
+      // a transport failure — do not overwrite it with a generic fetch error.
+      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to inspect virtual camera");
     } finally {
@@ -34,15 +58,31 @@ export function useVirtualCam(): UseVirtualCamResult {
     void refresh();
   }, [refresh]);
 
+  // While streaming, poll so the runtime details (consumers, negotiated
+  // format) stay fresh and a crashed ffmpeg is noticed without a reload.
+  useEffect(() => {
+    if (!status?.running) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, RUNNING_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [status?.running, refresh]);
+
   const start = useCallback(
-    async (request: VirtualCamStartRequest) => {
+    async (request: VirtualCamStartOptions) => {
       setPending(true);
       setError(null);
       try {
         await startVirtualCam(request);
         await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to start virtual camera");
+        const message = err instanceof Error ? err.message : "Unable to start virtual camera";
+        // The backend may still have recorded a richer last_error; pull it in
+        // before setting our own error so refresh() cannot clear it.
+        await refresh().catch(() => undefined);
+        setError(message);
       } finally {
         setPending(false);
       }

@@ -32,6 +32,7 @@ export function useVideoCapture(
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const previousDeviceNameRef = useRef<string | null>(deviceName);
+  const resumePreviewAfterRecordingRef = useRef(false);
 
   const streamUrl = useMemo(() => {
     if (!previewEnabled || !deviceName || !selectedFormat) {
@@ -53,8 +54,21 @@ export function useVideoCapture(
     void refreshStatus();
   }, [refreshStatus]);
 
+  // Poll while recording so an unexpected ffmpeg exit (camera unplugged,
+  // device claimed elsewhere) surfaces quickly instead of a stale "Recording".
+  useEffect(() => {
+    if (status?.recording !== true) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      void refreshStatus();
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [status?.recording, refreshStatus]);
+
   useEffect(() => {
     const previousDeviceName = previousDeviceNameRef.current;
+    resumePreviewAfterRecordingRef.current = false;
     setPreviewEnabled((enabled) => {
       if (enabled && previousDeviceName) {
         void stopVideoStream(previousDeviceName).catch(() => undefined);
@@ -94,7 +108,17 @@ export function useVideoCapture(
     setPending(true);
     setError(null);
     try {
-      setStatus(await startVideoRecording(deviceName, selectedFormat));
+      const nextStatus = await startVideoRecording(deviceName, selectedFormat);
+      setStatus(nextStatus);
+      if (nextStatus.recording) {
+        // The recording ffmpeg owns the camera exclusively, so the preview
+        // stream was already stopped server-side. Mirror that locally instead
+        // of letting the img element retry against a busy device.
+        setPreviewEnabled((enabled) => {
+          resumePreviewAfterRecordingRef.current = enabled;
+          return false;
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to start recording");
     } finally {
@@ -107,6 +131,11 @@ export function useVideoCapture(
     setError(null);
     try {
       setStatus(await stopVideoRecording());
+      if (resumePreviewAfterRecordingRef.current) {
+        resumePreviewAfterRecordingRef.current = false;
+        setStreamToken((current) => current + 1);
+        setPreviewEnabled(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to stop recording");
     } finally {

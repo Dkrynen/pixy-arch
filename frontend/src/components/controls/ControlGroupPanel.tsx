@@ -47,6 +47,7 @@ export function ControlGroupPanel({ group, controls, pixyHid, controlPresets }: 
           <ControlRenderer
             key={control.name}
             control={control}
+            allControls={controls.controls}
             disabled={controls.pendingControl === control.name}
             onSetValue={(value) => controls.setValue(control.name, value)}
           />

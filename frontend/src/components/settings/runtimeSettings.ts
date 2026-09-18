@@ -6,6 +6,7 @@ export type RuntimeSetting = {
   label: string;
   value: string;
   detail: string;
+  group: string;
   apply: (value: string) => AppSettingsUpdate;
   inputMode?: "text" | "number" | "select";
   options?: { label: string; value: string }[];
@@ -18,6 +19,7 @@ export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["se
       label: "Startup",
       value: String(settings.safety.start_in_privacy),
       detail: "live",
+      group: "Safety",
       inputMode: "select",
       options: [
         { label: "Start private", value: "true" },
@@ -30,6 +32,7 @@ export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["se
       label: "Bind host",
       value: settings.server.host,
       detail: "restart",
+      group: "Backend",
       apply: (value) => ({ server: { host: cleanText(value, settings.server.host) } })
     },
     {
@@ -37,6 +40,7 @@ export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["se
       label: "Bind port",
       value: String(settings.server.port),
       detail: "restart",
+      group: "Backend",
       inputMode: "number",
       apply: (value) => ({ server: { port: toPort(value, settings.server.port) } })
     },
@@ -45,6 +49,7 @@ export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["se
       label: "Vite host",
       value: settings.frontend.dev_server_host,
       detail: "dev restart",
+      group: "Frontend",
       apply: (value) => ({ frontend: { dev_server: { host: cleanText(value, settings.frontend.dev_server_host) } } })
     },
     {
@@ -52,6 +57,7 @@ export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["se
       label: "Vite port",
       value: String(settings.frontend.dev_server_port),
       detail: "dev restart",
+      group: "Frontend",
       inputMode: "number",
       apply: (value) => ({ frontend: { dev_server: { port: toPort(value, settings.frontend.dev_server_port) } } })
     },
@@ -60,6 +66,7 @@ export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["se
       label: "UI dist",
       value: settings.frontend.dist_path,
       detail: "restart",
+      group: "Frontend",
       apply: (value) => ({ frontend: { dist: cleanText(value, settings.frontend.dist_path) } })
     },
     {
@@ -67,6 +74,7 @@ export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["se
       label: "Presets",
       value: settings.storage.presets_path,
       detail: "live",
+      group: "Storage",
       apply: (value) => ({ storage: { presets: cleanText(value, settings.storage.presets_path) } })
     },
     {
@@ -74,6 +82,7 @@ export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["se
       label: "Recordings",
       value: settings.storage.recordings_dir,
       detail: "live",
+      group: "Storage",
       apply: (value) => ({ storage: { recordings: cleanText(value, settings.storage.recordings_dir) } })
     },
     {
@@ -81,6 +90,7 @@ export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["se
       label: "HID path",
       value: settings.hid.path ?? "",
       detail: "live",
+      group: "HID",
       apply: (value) => ({ hid: { path: value.trim() || null } })
     },
     {
@@ -88,10 +98,24 @@ export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["se
       label: "HID gap",
       value: String(settings.hid.report_gap_ms),
       detail: "live",
+      group: "HID",
       inputMode: "number",
       apply: (value) => ({ hid: { report_gap_ms: toBoundedInt(value, settings.hid.report_gap_ms, 0, 1000) } })
     }
   ];
+}
+
+export function groupRuntimeSettings(rows: RuntimeSetting[]): { group: string; rows: RuntimeSetting[] }[] {
+  const groups: { group: string; rows: RuntimeSetting[] }[] = [];
+  for (const row of rows) {
+    const last = groups[groups.length - 1];
+    if (last && last.group === row.group) {
+      last.rows.push(row);
+    } else {
+      groups.push({ group: row.group, rows: [row] });
+    }
+  }
+  return groups;
 }
 
 export function displayRuntimeValue(row: RuntimeSetting) {

@@ -29,9 +29,10 @@ def _version_from_result(result: PixyHidRawQueryResult) -> str | None:
         if match:
             return match.group(0)
     if result.raw_value is not None:
-        # Packed version bytes (e.g. 0x0204 -> 2.0.4) are a guess until
-        # verified on hardware; expose hex rather than misreporting.
-        return f"0x{result.raw_value:x}"
+        # The PIXY version-query payload is a short raw value (e.g. byte 0x04
+        # followed by 0x20) whose numeric-version mapping is not confirmed, so
+        # expose the raw byte as hex rather than inventing a dotted version.
+        return f"0x{result.raw_value:02x}"
     return None
 
 

@@ -5,6 +5,10 @@ import { groupControls } from "../domains/controls/grouping";
 import type { V4L2Control } from "../types/api";
 
 const ACTIVE_STATE_PARENT_CONTROLS = new Set(["auto_exposure", "white_balance_automatic", "focus_automatic_continuous"]);
+// Writing one of these makes the backend flip its auto-mode parent first
+// (see DEPENDENCY_CONTROLS in the v4l2 service), so a full refresh is required
+// to keep the parent control and inactive flags truthful.
+const DEPENDENT_CHILD_CONTROLS = new Set(["exposure_time_absolute", "white_balance_temperature", "focus_absolute"]);
 const REFRESH_AFTER_WRITE_KINDS = new Set(["bool", "menu"]);
 
 export type UseControlsResult = {
@@ -51,8 +55,9 @@ export function useControls(deviceName: string | null): UseControlsResult {
       }
       setPendingControl(controlName);
       setError(null);
-      const previousControls = controls;
       const targetControl = controls.find((control) => control.name === controlName);
+      const previousValue = targetControl?.value;
+      const previousValueLabel = targetControl?.value_label;
       setControls((current) =>
         current.map((control) =>
           control.name === controlName
@@ -66,7 +71,13 @@ export function useControls(deviceName: string | null): UseControlsResult {
       );
       try {
         const updated = await setControlValue(deviceName, controlName, value);
-        if (ACTIVE_STATE_PARENT_CONTROLS.has(controlName) || REFRESH_AFTER_WRITE_KINDS.has(targetControl?.kind ?? "")) {
+        const wasInactive = targetControl?.flags.includes("inactive") ?? false;
+        if (
+          ACTIVE_STATE_PARENT_CONTROLS.has(controlName) ||
+          DEPENDENT_CHILD_CONTROLS.has(controlName) ||
+          wasInactive ||
+          REFRESH_AFTER_WRITE_KINDS.has(targetControl?.kind ?? "")
+        ) {
           setControls(await fetchControls(deviceName));
         } else {
           setControls((current) =>
@@ -74,7 +85,14 @@ export function useControls(deviceName: string | null): UseControlsResult {
           );
         }
       } catch (err) {
-        setControls(previousControls);
+        // Roll back only the failed control so concurrent edits elsewhere survive.
+        setControls((current) =>
+          current.map((control) =>
+            control.name === controlName && previousValue !== undefined
+              ? { ...control, value: previousValue, value_label: previousValueLabel ?? null }
+              : control
+          )
+        );
         setError(err instanceof Error ? err.message : "Unable to set control");
       } finally {
         setPendingControl(null);

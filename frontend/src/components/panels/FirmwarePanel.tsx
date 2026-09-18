@@ -1,6 +1,8 @@
 import { Cpu } from "lucide-react";
 
 import type { UseFirmwareResult } from "../../hooks/useFirmware";
+import type { FirmwareComponent } from "../../types/api";
+import "./FirmwarePanel.css";
 
 type Props = {
   firmware: UseFirmwareResult;
@@ -14,6 +16,7 @@ const componentLabels: Record<string, string> = {
 
 export function FirmwarePanel({ firmware }: Props) {
   const status = firmware.status;
+  const hasRawVersions = status?.components.some((component) => component.current?.startsWith("0x")) ?? false;
   return (
     <section className="smart-panel">
       <div className="panel-title-row">
@@ -26,20 +29,19 @@ export function FirmwarePanel({ firmware }: Props) {
 
       <div className="smart-control-stack">
         {status?.components.map((component) => (
-          <div key={component.name} className="privacy-mode-row">
-            <span>{componentLabels[component.name] ?? component.name}</span>
-            <strong>
-              {component.current ?? "—"}
-              {component.latest ? ` → ${component.latest}` : ""}
-              {component.update_available === true ? " (update)" : ""}
-            </strong>
-          </div>
+          <FirmwareComponentRow key={component.name} component={component} manifestChecked={status.manifest_checked} />
         ))}
         {status?.serial_number && (
           <div className="privacy-mode-row">
             <span>Serial</span>
             <strong>{status.serial_number}</strong>
           </div>
+        )}
+        {hasRawVersions && (
+          <small className="firmware-raw-note">
+            0xNN values are raw bytes from the camera&apos;s version query — the exact
+            version encoding is not decoded yet, so update detection may be unknown.
+          </small>
         )}
         <div className="smart-control">
           <button
@@ -53,5 +55,26 @@ export function FirmwarePanel({ firmware }: Props) {
         </div>
       </div>
     </section>
+  );
+}
+
+function FirmwareComponentRow({ component, manifestChecked }: { component: FirmwareComponent; manifestChecked: boolean }) {
+  let updateLabel = "";
+  if (component.update_available === true) {
+    updateLabel = " (update available)";
+  } else if (component.update_available === false) {
+    updateLabel = " (up to date)";
+  } else if (manifestChecked && component.latest === null) {
+    updateLabel = " (no manifest entry)";
+  }
+  return (
+    <div className="privacy-mode-row" title={component.response_hex ? `HID response: ${component.response_hex}` : undefined}>
+      <span>{componentLabels[component.name] ?? component.name}</span>
+      <strong>
+        {component.current ?? "—"}
+        {component.latest ? ` → ${component.latest}` : ""}
+        {updateLabel}
+      </strong>
+    </div>
   );
 }

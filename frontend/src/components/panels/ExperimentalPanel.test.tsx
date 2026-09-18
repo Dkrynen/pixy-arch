@@ -61,9 +61,13 @@ describe("ExperimentalPanel", () => {
 
     render(<ExperimentalPanel deviceName="video0" />);
 
+    expect(screen.getByText("Experimental · read only")).toBeInTheDocument();
+    expect(screen.getByText(/never written/)).toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: /probe/i }));
 
     expect(captureMock).toHaveBeenCalledWith("video0", false);
+    expect(await screen.findByText("Probed 1 selectors (read only)")).toBeInTheDocument();
     expect(await screen.findByText("Selector 1")).toBeInTheDocument();
     expect(screen.getByText(/cur:01 int:1/)).toBeInTheDocument();
     expect(screen.getByText("GET SET 1B")).toBeInTheDocument();

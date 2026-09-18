@@ -1,0 +1,144 @@
+/* VideoMonitor-only styles. Scoped under .video-monitor to avoid collisions
+   with the global stylesheet (styles.css is owned by the design workstream). */
+
+.video-monitor .video-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--bg) 75%, transparent);
+  backdrop-filter: blur(2px);
+  z-index: 2;
+}
+
+.video-monitor .video-overlay svg {
+  color: var(--accent);
+}
+
+.video-monitor .video-overlay strong {
+  color: var(--text-1);
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.video-monitor .video-overlay span {
+  color: var(--text-2);
+  font-size: 12px;
+  max-width: 34ch;
+}
+
+.video-monitor .video-overlay .secondary-button {
+  margin-top: 4px;
+}
+
+.video-monitor .video-overlay.is-privacy svg {
+  color: var(--warn);
+}
+
+.video-monitor .video-connecting {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  background: var(--surface-inset);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.video-monitor .video-connecting svg {
+  animation: video-monitor-spin 1.1s linear infinite;
+  color: var(--accent);
+}
+
+@keyframes video-monitor-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.video-monitor .video-chip {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-border);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  color: var(--text-1);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.video-monitor .video-chip .chip-action {
+  pointer-events: auto;
+}
+
+.video-monitor .video-chip-recording {
+  top: 8px;
+  left: 8px;
+  border-color: var(--danger);
+  color: color-mix(in srgb, var(--danger) 65%, white);
+}
+
+.video-monitor .video-chip-recording .rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: video-monitor-rec-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes video-monitor-rec-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.video-monitor .video-chip-focus {
+  bottom: 8px;
+  left: 8px;
+}
+
+.video-monitor .video-chip-mode {
+  bottom: 8px;
+  right: 8px;
+}
+
+.video-monitor .chip-action {
+  border: 1px solid var(--accent-border);
+  border-radius: 5px;
+  padding: 2px 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.video-monitor .chip-action:hover {
+  background: var(--accent-soft);
+}
+
+.video-monitor .video-frame.is-privacy img {
+  filter: brightness(0.35) saturate(0.4);
+}
+
+.video-monitor .video-frame.stream-failed {
+  border-color: var(--danger-border);
+}

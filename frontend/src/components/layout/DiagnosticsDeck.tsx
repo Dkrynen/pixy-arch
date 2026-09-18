@@ -33,7 +33,7 @@ export function DiagnosticsDeck({
   return (
     <div className="diagnostics-console">
       <div className="diagnostics-intro">
-        <SignalPanel isLoading={controls.isLoading} />
+        <SignalPanel controls={controls} pixyHid={pixyHid} deviceName={deviceName} />
       </div>
       <div className="diagnostics-grid">
         <HidDiagnosticsPanel />
@@ -52,7 +52,15 @@ export function DiagnosticsDeck({
   );
 }
 
-function SignalPanel({ isLoading }: { isLoading: boolean }) {
+function SignalPanel({
+  controls,
+  pixyHid,
+  deviceName
+}: {
+  controls: UseControlsResult;
+  pixyHid: UsePixyHidResult;
+  deviceName: string | null;
+}) {
   return (
     <div className="signal-panel">
       <div className="panel-title-row">
@@ -60,8 +68,24 @@ function SignalPanel({ isLoading }: { isLoading: boolean }) {
         <h2>Signal</h2>
       </div>
       <div className="telemetry-stack">
-        <span>V4L2 online</span>
-        <strong>{isLoading ? "Scanning" : "Ready"}</strong>
+        <div>
+          <span>V4L2</span>
+          <strong>{controls.isLoading ? "Scanning" : "Ready"}</strong>
+        </div>
+        <div>
+          <span>Controls</span>
+          <strong>{controls.controls.length}</strong>
+        </div>
+        <div>
+          <span>HID</span>
+          <strong>
+            {pixyHid.status?.writable ? "Linked" : pixyHid.status?.available ? "Limited" : "Absent"}
+          </strong>
+        </div>
+        <div>
+          <span>Device</span>
+          <strong>{deviceName ?? "—"}</strong>
+        </div>
       </div>
     </div>
   );

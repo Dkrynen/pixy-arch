@@ -503,7 +503,7 @@ class PixyHidService:
         if position is None:
             return f"{slot}:empty"
         pan, tilt = position
-        reports = [*motor_absolute_reports(0x01, pan), *motor_absolute_reports(0x02, tilt)]
+        reports = [*tracking_reports("off"), *motor_absolute_reports(0x01, pan), *motor_absolute_reports(0x02, tilt)]
         self._write_reports_sync(path, reports, operation=f"ptz_preset_load:{slot}:drive:{pan:g},{tilt:g}")
         return f"{slot}:{pan:g},{tilt:g}"
 

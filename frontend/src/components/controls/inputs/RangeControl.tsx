@@ -5,23 +5,33 @@ import { ControlShell } from "./ControlShell";
 
 type Props = {
   control: V4L2Control;
+  allControls?: V4L2Control[];
   disabled: boolean;
   onSetValue: (value: number) => Promise<void>;
 };
 
-export function RangeControl({ control, disabled, onSetValue }: Props) {
+export function RangeControl({ control, allControls, disabled, onSetValue }: Props) {
   const [draftValue, setDraftValue] = useState(control.value);
   const isInactive = control.flags.includes("inactive");
   const min = control.min ?? 0;
   const max = control.max ?? 100;
   const step = control.step && control.step > 0 ? control.step : 1;
+  // A degenerate range (e.g. zoom_continuous reporting 0..0) leaves nothing to adjust.
+  const notAdjustable = min >= max;
+  const unavailable = disabled || isInactive || notAdjustable;
 
   useEffect(() => {
     setDraftValue(control.value);
   }, [control.value]);
 
+  const commitDraftValue = () => {
+    if (!unavailable && draftValue !== control.value) {
+      void onSetValue(draftValue);
+    }
+  };
+
   return (
-    <ControlShell control={control}>
+    <ControlShell control={control} allControls={allControls}>
       <input
         className="range-input"
         type="range"
@@ -29,12 +39,13 @@ export function RangeControl({ control, disabled, onSetValue }: Props) {
         max={max}
         step={step}
         value={draftValue}
-        disabled={disabled || isInactive}
+        disabled={unavailable}
         onChange={(event) => setDraftValue(Number(event.target.value))}
-        onBlur={() => void onSetValue(draftValue)}
+        onPointerUp={commitDraftValue}
+        onBlur={commitDraftValue}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
-            void onSetValue(draftValue);
+            commitDraftValue();
           }
         }}
       />

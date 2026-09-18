@@ -369,6 +369,105 @@ describe("CompactControlPanel", () => {
     expect(setValue).toHaveBeenCalledWith("auto_exposure", 1);
   });
 
+  it("explains the AWB dependency and locks white balance on demand", async () => {
+    const user = userEvent.setup();
+    const setValue = vi.fn().mockResolvedValue(undefined);
+    const group: ControlGroup = {
+      id: "image",
+      title: "Image Control",
+      accent: "lime",
+      icon: SlidersHorizontal,
+      controls: [
+        control({ name: "white_balance_automatic", label: "White Balance, Automatic", kind: "bool", value: 1 }),
+        control({
+          name: "white_balance_temperature",
+          label: "White Balance Temperature",
+          kind: "int",
+          value: 5000,
+          min: 2300,
+          max: 7500,
+          step: 1,
+          flags: ["inactive"]
+        })
+      ]
+    };
+    const controls: UseControlsResult = {
+      controls: group.controls,
+      groups: [group],
+      isLoading: false,
+      error: null,
+      pendingControl: null,
+      refresh: vi.fn(),
+      setValue,
+      setValues: vi.fn()
+    };
+
+    render(
+      <CompactControlPanel
+        group={group}
+        controls={controls}
+        pixyHid={pixyHid()}
+        controlPresets={controlPresets()}
+      />
+    );
+
+    expect(screen.getByText("AWB: Auto. Set to Lock.")).toBeInTheDocument();
+    expect(screen.getByRole("slider")).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Lock WB" }));
+
+    expect(setValue).toHaveBeenCalledWith("white_balance_automatic", 0);
+  });
+
+  it("explains the autofocus dependency and switches to manual on demand", async () => {
+    const user = userEvent.setup();
+    const setValue = vi.fn().mockResolvedValue(undefined);
+    const group: ControlGroup = {
+      id: "focus",
+      title: "Focus Control",
+      accent: "magenta",
+      icon: Focus,
+      controls: [
+        control({ name: "focus_automatic_continuous", label: "Focus, Automatic Continuous", kind: "bool", value: 1 }),
+        control({
+          name: "focus_absolute",
+          label: "Focus, Absolute",
+          kind: "int",
+          value: 512,
+          min: 0,
+          max: 1023,
+          step: 1,
+          flags: ["inactive"]
+        })
+      ]
+    };
+    const controls: UseControlsResult = {
+      controls: group.controls,
+      groups: [group],
+      isLoading: false,
+      error: null,
+      pendingControl: null,
+      refresh: vi.fn(),
+      setValue,
+      setValues: vi.fn()
+    };
+
+    render(
+      <CompactControlPanel
+        group={group}
+        controls={controls}
+        pixyHid={pixyHid()}
+        controlPresets={controlPresets()}
+      />
+    );
+
+    expect(screen.getByText("Focus Mode: Auto. Set to Manual.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Manual Focus" }));
+
+    expect(setValue).toHaveBeenCalledWith("focus_automatic_continuous", 0);
+  });
+
   it("saves active values as a named preset", async () => {
     const user = userEvent.setup();
     const savePreset = vi.fn().mockResolvedValue({

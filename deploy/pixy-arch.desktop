@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Pixy Arch
+Comment=EMEET PIXY camera control deck
+Exec=/home/duank/AI-Workspace/research/emeet-pixy/PixyPilot/tools/pixy-arch-launch.sh
+Icon=pixy-arch
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;
+Keywords=camera;webcam;emeet;pixy;
+StartupNotify=true
+StartupWMClass=pixy-arch

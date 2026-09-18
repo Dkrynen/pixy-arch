@@ -29,6 +29,22 @@ storage:
 hid:
   path:
   report_gap_ms: 25
+
+virtualcam:
+  device:
+  label: PixyPilot Virtual
+
+automation:
+  enabled: true
+  video_device: /dev/video0
+  on_open: tracking
+  on_close: privacy
+  grace_seconds: 8
+  poll_seconds: 1
+  exclude_processes: [wireplumber]
+
+firmware:
+  manifest_url: https://www.emeet.ai/device_software/EMEET_STUDIO/pixy/device_upgrade_pixy.json
 ```
 
 ## Normal Mode

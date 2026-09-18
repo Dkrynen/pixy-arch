@@ -52,6 +52,22 @@ def test_info_flags_decode_get_set_bits_in_display_order() -> None:
 
 
 @pytest.mark.asyncio
+async def test_probe_selectors_reports_missing_device_as_value_error() -> None:
+    service = UvcExtensionService()
+
+    with pytest.raises(ValueError, match="Cannot open /dev/video"):
+        await service.probe_selectors("/dev/video9876")
+
+
+@pytest.mark.asyncio
+async def test_probe_selectors_rejects_non_video_paths() -> None:
+    service = UvcExtensionService()
+
+    with pytest.raises(ValueError, match="Only /dev/videoN"):
+        await service.probe_selectors("/dev/null")
+
+
+@pytest.mark.asyncio
 async def test_capture_snapshot_can_save_probe_data(tmp_path, monkeypatch) -> None:
     service = UvcExtensionService()
     probe = UvcExtensionSelectorProbe(unit_id=2, selector=1, length=1, info=3, supports_get=True, supports_set=True)

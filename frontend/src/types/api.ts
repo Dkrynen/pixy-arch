@@ -236,7 +236,14 @@ export type AudioStatus = {
   volume: number | null;
   source_node: string | null;
   default_source: boolean | null;
+  // True when the backend captured the source it replaced — a
+  // /audio/default-source/restore call can put the old default back.
+  previous_default_source?: boolean;
   monitor_running: boolean;
+  // Meter fields are emitted by the updated backend; optional so payloads from
+  // an older backend build still satisfy the type.
+  meter_running?: boolean;
+  level?: number | null;
   reason: string | null;
 };
 
@@ -252,6 +259,8 @@ export type AudioMonitorResult = {
   running: boolean;
   pid: number | null;
   source_node: string | null;
+  // Current RMS level percent when reporting the meter; None for the monitor.
+  level?: number | null;
   reason: string | null;
 };
 
@@ -268,8 +277,17 @@ export type VirtualCamStatus = {
   pid: number | null;
   pipeline: string;
   source_device: string | null;
+  // Negotiated output on the sink, read back via ioctls — null while idle or
+  // on a backend build that predates runtime status.
+  output_width?: number | null;
+  output_height?: number | null;
+  output_pixel_format?: string | null;
+  fps?: number | null;
+  frames?: number | null;
+  consumers?: number;
   transform: VirtualCamTransform;
   reason: string | null;
+  last_error?: string | null;
 };
 
 export type VirtualCamStartRequest = {
@@ -279,6 +297,7 @@ export type VirtualCamStartRequest = {
   input_width?: number;
   input_height?: number;
   input_fps?: number;
+  input_format?: string;
   output_width?: number;
   output_height?: number;
   transform?: VirtualCamTransform;
@@ -289,6 +308,7 @@ export type VirtualCamActionResult = {
   running: boolean;
   pid: number | null;
   sink_path: string | null;
+  source_device?: string | null;
   reason: string | null;
 };
 
@@ -300,6 +320,8 @@ export type AutomationSettings = {
   grace_seconds: number;
   poll_seconds: number;
   exclude_processes: string[];
+  // Only unmute the mic on call start when true — older backends omit it.
+  unmute_mic?: boolean;
 };
 
 export type AutomationStatus = {
@@ -307,6 +329,8 @@ export type AutomationStatus = {
   camera_in_use: boolean;
   holders: string[];
   saved_mode: string | null;
+  // True while the mic is unmuted because automation unmuted it this call.
+  mic_unmuted?: boolean;
   last_action: string | null;
   settings: AutomationSettings;
 };

@@ -1,0 +1,8 @@
+/* FirmwarePanel-only styles. */
+
+.firmware-raw-note {
+  display: block;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  opacity: 0.6;
+}

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 
 import { captureUvcExtensionSnapshot } from "../../lib/apiClient";
 import type { UvcExtensionSelectorProbe, UvcExtensionSnapshot } from "../../types/api";
+import "./ExperimentalPanel.css";
 
 type Props = {
   deviceName: string | null;
@@ -27,7 +28,11 @@ export function ExperimentalPanel({ deviceName }: Props) {
     try {
       const result = await captureUvcExtensionSnapshot(deviceName, save);
       setSnapshot(result);
-      setMessage(save && result.file_path ? `Saved ${result.file_path}` : "Selectors probed");
+      setMessage(
+        save && result.file_path
+          ? `Saved ${result.file_path}`
+          : `Probed ${result.selectors.length} selectors (read only)`
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to probe UVC extension selectors");
     } finally {
@@ -77,8 +82,11 @@ export function ExperimentalPanel({ deviceName }: Props) {
             <strong>UVC Extension</strong>
             <span>{deviceName ? `${deviceName} unit 2 selectors 1-10` : "Select a capture device"}</span>
           </div>
-          <em>Read only</em>
+          <em>Experimental · read only</em>
         </div>
+        <small className="uvc-experimental-note">
+          Uncorrelated selectors are never written — only GET queries are sent.
+        </small>
         <div className="diagnostic-actions">
           <button className="panel-action-button" disabled={disabled} onClick={() => void probe(false)}>
             <SearchCode size={14} />
@@ -91,7 +99,7 @@ export function ExperimentalPanel({ deviceName }: Props) {
           <button className="icon-button" disabled={!snapshot || pending !== null} aria-label="Copy UVC snapshot" onClick={() => void copySnapshot()}>
             <Clipboard size={15} />
           </button>
-          <button className="icon-button" disabled={!snapshot} aria-label="Download UVC snapshot" onClick={downloadSnapshot}>
+          <button className="icon-button" disabled={!snapshot || pending !== null} aria-label="Download UVC snapshot" onClick={downloadSnapshot}>
             <Download size={15} />
           </button>
         </div>

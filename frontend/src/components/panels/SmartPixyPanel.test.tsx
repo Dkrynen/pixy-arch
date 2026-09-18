@@ -87,6 +87,8 @@ function makeAudio(overrides: Partial<UseAudioResult> = {}): UseAudioResult {
     setVolume: vi.fn(),
     setDefaultSource: vi.fn(),
     setMonitorRunning: vi.fn(),
+    setMeterRunning: vi.fn(),
+    restoreDefaultSource: vi.fn(),
     ...overrides
   };
 }
@@ -195,7 +197,7 @@ describe("SmartPixyPanel", () => {
     expect(screen.getByRole("button", { name: "Tracking" })).toHaveClass("is-selected");
   });
 
-  it("keeps experimental target-tracking modes out of the main control panel", () => {
+  it("keeps experimental target-tracking modes behind the collapsed Advanced section", () => {
     render(
       <SmartPixyPanel
         pixyHid={makePixyHid({
@@ -222,10 +224,10 @@ describe("SmartPixyPanel", () => {
     expect(screen.getByText("Tracking raw 1 bits 0")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Tracking" })).toHaveClass("is-selected");
     expect(screen.getByText("Tracking mode is active. Focus target selection is handled in Focus Control: Center, Face, or Region.")).toBeInTheDocument();
+    // Target tracking lives in Advanced and stays collapsed by default.
     expect(screen.queryByText("Tracking Target")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Face" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Half" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Full" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Half body" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Full body" })).not.toBeInTheDocument();
   });
 
   it("describes focus targeting separately while standard mode is selected", () => {
@@ -602,5 +604,159 @@ describe("SmartPixyPanel", () => {
     await user.click(screen.getByRole("button", { name: "Mic mute" }));
 
     expect(setMuted).toHaveBeenCalledWith(true);
+  });
+
+  it("shows a fix hint when hidraw is present but not writable", () => {
+    render(<SmartPixyPanel pixyHid={makePixyHid()} audio={makeAudio()} privacySafety={makePrivacySafety()} />);
+
+    expect(screen.getByText(/70-pixypilot-hid\.rules/)).toBeInTheDocument();
+  });
+
+  function writablePixyHid(overrides: Partial<UsePixyHidResult> = {}) {
+    return makePixyHid({
+      status: {
+        available: true,
+        path: "/dev/hidraw14",
+        readable: true,
+        writable: true,
+        reason: null,
+        known_controls: ["tracking", "mirror", "focus_metering", "wb_lock", "ev_lock", "focus_lock", "denoise", "remote_pairing", "power_on_default", "target_tracking", "motor_speed", "ptz_absolute"]
+      },
+      ...overrides
+    });
+  }
+
+  it("selects mirror modes from the Orientation group", async () => {
+    const user = userEvent.setup();
+    const setMirrorMode = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SmartPixyPanel pixyHid={writablePixyHid({ setMirrorMode })} audio={makeAudio()} privacySafety={makePrivacySafety()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "HV" }));
+
+    expect(setMirrorMode).toHaveBeenCalledWith("hv");
+  });
+
+  it("selects focus metering targets from the Focus group", async () => {
+    const user = userEvent.setup();
+    const setFocusMeteringMode = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SmartPixyPanel
+        pixyHid={writablePixyHid({ setFocusMeteringMode })}
+        audio={makeAudio()}
+        privacySafety={makePrivacySafety()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Region" }));
+
+    expect(setFocusMeteringMode).toHaveBeenCalledWith("selected_area");
+  });
+
+  it("toggles imaging locks through their device-backed state", async () => {
+    const user = userEvent.setup();
+    const setWbLock = vi.fn().mockResolvedValue(undefined);
+    const setDenoise = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SmartPixyPanel
+        pixyHid={writablePixyHid({ wbLockEnabled: true, denoiseEnabled: false, setWbLock, setDenoise })}
+        audio={makeAudio()}
+        privacySafety={makePrivacySafety()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "WB lock" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: "WB lock" }));
+    await user.click(screen.getByRole("button", { name: "Denoise" }));
+
+    expect(setWbLock).toHaveBeenCalledWith(false);
+    expect(setDenoise).toHaveBeenCalledWith(true);
+  });
+
+  it("warns that denoise state is unverified when the device does not report it", () => {
+    render(
+      <SmartPixyPanel
+        pixyHid={writablePixyHid({ unsupportedReadbacks: ["denoise_state"] })}
+        audio={makeAudio()}
+        privacySafety={makePrivacySafety()}
+      />
+    );
+
+    expect(screen.getByText(/does not report denoise state/)).toBeInTheDocument();
+  });
+
+  it("runs power-on default commands and shows the stored pose readback", async () => {
+    const user = userEvent.setup();
+    const capturePowerOnDefault = vi.fn().mockResolvedValue(undefined);
+    const goToDefault = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SmartPixyPanel
+        pixyHid={writablePixyHid({
+          powerOnDefaultEnabled: true,
+          powerOnDefaultPosition: { pan: 1.55, tilt: -5.86 },
+          capturePowerOnDefault,
+          goToDefault
+        })}
+        audio={makeAudio()}
+        privacySafety={makePrivacySafety()}
+      />
+    );
+
+    expect(screen.getByText(/pan 1\.55°, tilt -5\.86°/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save current" }));
+    await user.click(screen.getByRole("button", { name: "Go to" }));
+
+    expect(capturePowerOnDefault).toHaveBeenCalledTimes(1);
+    expect(goToDefault).toHaveBeenCalledTimes(1);
+  });
+
+  it("toggles remote pairing", async () => {
+    const user = userEvent.setup();
+    const setRemotePairing = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SmartPixyPanel
+        pixyHid={writablePixyHid({ setRemotePairing })}
+        audio={makeAudio()}
+        privacySafety={makePrivacySafety()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Remote pairing" }));
+
+    expect(setRemotePairing).toHaveBeenCalledWith(true);
+  });
+
+  it("reveals experimental target tracking and motor controls inside Advanced", async () => {
+    const user = userEvent.setup();
+    const setTargetTrackingMode = vi.fn().mockResolvedValue(undefined);
+    const sendPtzAbsolute = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <SmartPixyPanel
+        pixyHid={writablePixyHid({ setTargetTrackingMode, sendPtzAbsolute, motorPosPanDeg: 1.4, motorPosTiltDeg: -6.2 })}
+        audio={makeAudio()}
+        privacySafety={makePrivacySafety()}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "Half body" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Advanced" }));
+
+    await user.click(screen.getByRole("button", { name: "Half body" }));
+    expect(setTargetTrackingMode).toHaveBeenCalledWith("half_body");
+
+    expect(screen.getByText(/pan 1\.4°, tilt -6\.2°/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Go" }));
+    expect(sendPtzAbsolute).toHaveBeenCalledWith(0, 0);
   });
 });

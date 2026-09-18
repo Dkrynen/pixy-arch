@@ -173,6 +173,7 @@ def ptz_direction_reports(direction: PtzDirection) -> list[bytes]:
     axis, delta = PTZ_DIRECTION_VALUES[direction]
     delta_bytes = list(struct.pack("<f", delta))
     return [
+        build_report([0x09, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, TRACKING_VALUES["off"]]),
         build_report([0x09, 0x63, 0x01, 0x19, 0x00, 0x05, 0x00, 0x05, axis, *delta_bytes]),
     ]
 

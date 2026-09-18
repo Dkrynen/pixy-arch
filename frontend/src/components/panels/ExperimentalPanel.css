@@ -1,0 +1,8 @@
+/* ExperimentalPanel-only styles. */
+
+.uvc-experimental-note {
+  display: block;
+  font-size: 0.72rem;
+  opacity: 0.6;
+  margin: 2px 0 0;
+}

@@ -13,6 +13,7 @@ import { usePrivacySafety } from "../hooks/usePrivacySafety";
 import { useVideoCapture } from "../hooks/useVideoCapture";
 import { useVideoFormats } from "../hooks/useVideoFormats";
 import { useVirtualCam } from "../hooks/useVirtualCam";
+import { useCommandLogFeed } from "../lib/commandLog";
 
 export function App() {
   const devices = useDevices();
@@ -28,7 +29,12 @@ export function App() {
   const controlPresets = useControlPresets();
   const handleVideoHotplug = useCallback(() => {
     void devices.refresh({ showLoading: false });
-  }, [devices.refresh]);
+    // A replugged camera returns under the same device name, which means the
+    // device-keyed hooks would not refetch on their own — stale controls and
+    // formats otherwise persist across the unplug/replug boundary.
+    void controls.refresh();
+    void videoFormats.refresh();
+  }, [controls.refresh, devices.refresh, videoFormats.refresh]);
   const handleHidHotplug = useCallback(() => {
     void pixyHid.refreshStatus({ showLoading: false });
   }, [pixyHid.refreshStatus]);
@@ -36,6 +42,18 @@ export function App() {
   useHotplugEvents({
     onVideo: handleVideoHotplug,
     onHid: handleHidHotplug
+  });
+
+  // Feed the shared command log at the app root so events are recorded even
+  // while the diagnostics view (which renders the log) is hidden.
+  useCommandLogFeed({
+    devices,
+    controls,
+    videoFormats,
+    videoCapture,
+    pixyHid,
+    audio,
+    privacySafety
   });
 
   return (

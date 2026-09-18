@@ -66,14 +66,20 @@ export function ControlDeck({
         </div>
       </div>
       <aside className="operator-side">
-        <SignalPanel isLoading={controls.isLoading} />
+        <SignalPanel controls={controls} videoCapture={videoCapture} />
         <SmartPixyPanel pixyHid={pixyHid} audio={audio} privacySafety={privacySafety} />
       </aside>
     </div>
   );
 }
 
-function SignalPanel({ isLoading }: { isLoading: boolean }) {
+function SignalPanel({
+  controls,
+  videoCapture
+}: {
+  controls: UseControlsResult;
+  videoCapture: UseVideoCaptureResult;
+}) {
   return (
     <div className="signal-panel compact-signal-panel">
       <div className="panel-title-row">
@@ -81,8 +87,18 @@ function SignalPanel({ isLoading }: { isLoading: boolean }) {
         <h2>Signal</h2>
       </div>
       <div className="telemetry-stack">
-        <span>V4L2 online</span>
-        <strong>{isLoading ? "Scanning" : "Ready"}</strong>
+        <div>
+          <span>V4L2</span>
+          <strong>{controls.isLoading ? "Scanning" : "Ready"}</strong>
+        </div>
+        <div>
+          <span>Controls</span>
+          <strong>{controls.controls.length}</strong>
+        </div>
+        <div>
+          <span>Stream</span>
+          <strong>{videoCapture.previewEnabled ? "Live" : "Idle"}</strong>
+        </div>
       </div>
     </div>
   );

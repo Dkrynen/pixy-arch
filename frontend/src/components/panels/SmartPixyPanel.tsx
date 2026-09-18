@@ -1,10 +1,25 @@
 import { useEffect, useState } from "react";
-import { ScanFace, Shield, Sparkles, Volume2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Crosshair,
+  FlipHorizontal2,
+  Gauge,
+  Lock,
+  Move,
+  PersonStanding,
+  Power,
+  ScanFace,
+  Shield,
+  Sparkles,
+  Volume2
+} from "lucide-react";
 
 import type { UseAudioResult } from "../../hooks/useAudio";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
-import type { AudioMode, TrackingMode } from "../../types/api";
+import type { AudioMode, FocusMeteringMode, MirrorMode, TargetTrackingMode, TrackingMode } from "../../types/api";
+import "./SmartPixyPanel.css";
 
 type Props = {
   pixyHid: UsePixyHidResult;
@@ -25,6 +40,26 @@ const autoPrivacyPresets = [
   { value: 900, label: "15m" }
 ];
 
+const mirrorModes: { value: MirrorMode; label: string }[] = [
+  { value: "off", label: "Off" },
+  { value: "h", label: "H" },
+  { value: "v", label: "V" },
+  { value: "hv", label: "HV" }
+];
+
+const focusMeteringModes: { value: FocusMeteringMode; label: string }[] = [
+  { value: "center", label: "Center" },
+  { value: "human_face", label: "Face" },
+  { value: "selected_area", label: "Region" }
+];
+
+const targetTrackingModes: { value: TargetTrackingMode; label: string }[] = [
+  { value: "off", label: "Off" },
+  { value: "face", label: "Face" },
+  { value: "half_body", label: "Half body" },
+  { value: "full_body", label: "Full body" }
+];
+
 export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
   const writable = pixyHid.status?.writable ?? false;
   const available = pixyHid.status?.available ?? false;
@@ -39,11 +74,26 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
     pixyHid.deviceTrackingRawBits
   );
   const privacyHelp = privacyHelpText(pixyHid, privacyEnabled, trackingEnabled);
+  const unsupported = pixyHid.unsupportedReadbacks ?? [];
   const [autoPrivacyDraft, setAutoPrivacyDraft] = useState(String(pixyHid.autoPrivacySeconds ?? 0));
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [panSpeedDraft, setPanSpeedDraft] = useState(String(pixyHid.motorSpeedPanDeg ?? 60));
+  const [tiltSpeedDraft, setTiltSpeedDraft] = useState(String(pixyHid.motorSpeedTiltDeg ?? 60));
+  const [panTargetDraft, setPanTargetDraft] = useState("0");
+  const [tiltTargetDraft, setTiltTargetDraft] = useState("0");
 
   useEffect(() => {
     setAutoPrivacyDraft(String(pixyHid.autoPrivacySeconds ?? 0));
   }, [pixyHid.autoPrivacySeconds]);
+
+  useEffect(() => {
+    if (pixyHid.motorSpeedPanDeg !== null && pixyHid.motorSpeedPanDeg !== undefined) {
+      setPanSpeedDraft(String(pixyHid.motorSpeedPanDeg));
+    }
+    if (pixyHid.motorSpeedTiltDeg !== null && pixyHid.motorSpeedTiltDeg !== undefined) {
+      setTiltSpeedDraft(String(pixyHid.motorSpeedTiltDeg));
+    }
+  }, [pixyHid.motorSpeedPanDeg, pixyHid.motorSpeedTiltDeg]);
 
   const commitAutoPrivacy = () => {
     const parsed = Number(autoPrivacyDraft);
@@ -59,6 +109,24 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
     if (pixyHid.autoPrivacySeconds !== seconds) {
       void pixyHid.setAutoPrivacySeconds(seconds);
     }
+  };
+
+  const commitMotorSpeed = (axis: 1 | 2, draft: string, resetDraft: (value: string) => void) => {
+    const parsed = Number(draft);
+    const clamped = Number.isFinite(parsed) ? Math.min(360, Math.max(1, parsed)) : 60;
+    resetDraft(String(clamped));
+    const current = axis === 1 ? pixyHid.motorSpeedPanDeg : pixyHid.motorSpeedTiltDeg;
+    if (current !== clamped) {
+      void pixyHid.setMotorSpeed(axis, clamped);
+    }
+  };
+
+  const goToAbsolute = () => {
+    const pan = clampDraft(panTargetDraft, -150, 150, 0);
+    const tilt = clampDraft(tiltTargetDraft, -90, 90, 0);
+    setPanTargetDraft(String(pan));
+    setTiltTargetDraft(String(tilt));
+    void pixyHid.sendPtzAbsolute(pan, tilt);
   };
 
   const setControlMode = (mode: TrackingMode) => {
@@ -90,6 +158,12 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
 
       {pixyHid.error && <div className="mini-error">{pixyHid.error}</div>}
       {!writable && pixyHid.status?.reason && <div className="mini-warning">{pixyHid.status.reason}</div>}
+      {!writable && available && (
+        <small className="hid-permission-hint">
+          Grant hidraw access: install <code>deploy/udev/70-pixypilot-hid.rules</code> (or add your user to
+          the <code>plugdev</code> group), then reload udev and replug the camera.
+        </small>
+      )}
       <div className={`privacy-safety-strip state-${privacySafety.startupPrivacyState}`}>
         <Shield size={15} />
         <span>{privacySafetyText(privacySafety)}</span>
@@ -98,8 +172,8 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
       <div className="smart-control-stack">
         <div className="smart-control privacy-control">
           <div className="smart-label">
-            <Shield size={16} />
-            <span>Control Mode</span>
+            <ScanFace size={16} />
+            <span>Tracking &amp; Follow</span>
           </div>
           <div className="privacy-control-body">
             <div className={`device-mode-readback state-${pixyHid.deviceTrackingState}`}>
@@ -122,8 +196,35 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                 ))}
               </div>
             </div>
+            <div className="mic-mute-row">
+              <div>
+                <strong>Gesture Control</strong>
+                <small>Wave to toggle tracking</small>
+              </div>
+              <button
+                className={`toggle-switch ${pixyHid.gestureEnabled ? "is-on" : ""}`}
+                disabled={disabled}
+                aria-pressed={pixyHid.gestureEnabled === true}
+                aria-label="Gesture Control"
+                onClick={() => void pixyHid.setGestureEnabled(!(pixyHid.gestureEnabled ?? false))}
+              >
+                <span />
+              </button>
+            </div>
+            <small className="privacy-help">
+              {privacyHelp}
+            </small>
+          </div>
+        </div>
+
+        <div className="smart-control privacy-control">
+          <div className="smart-label">
+            <Shield size={16} />
+            <span>Privacy Timer</span>
+          </div>
+          <div className="privacy-control-body">
             <div className="privacy-mode-row">
-              <span>Timer</span>
+              <span>Auto-enter</span>
               <div className="segmented">
                 {autoPrivacyPresets.map((preset) => (
                   <button
@@ -157,47 +258,93 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
               <span>sec</span>
             </div>
             <small className="privacy-help">
-              {privacyHelp}
+              The captured delay writes and reads back, but the camera-side trigger is unconfirmed —
+              treat as experimental.
             </small>
           </div>
         </div>
 
-        <div className="smart-control smart-toggle-row">
+        <div className="smart-control">
           <div className="smart-label">
-            <Shield size={16} />
-            <span>Gesture Control</span>
+            <FlipHorizontal2 size={16} />
+            <span>Orientation</span>
           </div>
-          <button
-            className={`toggle-switch ${pixyHid.gestureEnabled ? "is-on" : ""}`}
-            disabled={disabled}
-            aria-pressed={pixyHid.gestureEnabled === true}
-            aria-label="Gesture Control"
-            onClick={() => void pixyHid.setGestureEnabled(!(pixyHid.gestureEnabled ?? false))}
-          >
-            <span />
-          </button>
+          <div className="privacy-mode-row">
+            <span>Mirror</span>
+            <div className="segmented">
+              {mirrorModes.map((mode) => (
+                <button
+                  key={mode.value}
+                  className={pixyHid.mirrorMode === mode.value ? "is-selected" : ""}
+                  disabled={disabled}
+                  onClick={() => void pixyHid.setMirrorMode(mode.value)}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mic-mute-row">
+            <div>
+              <strong>Auto Rotate</strong>
+              <small>Flip the image when the camera is upside down</small>
+            </div>
+            <button
+              className={`toggle-switch ${pixyHid.autoRotateEnabled ? "is-on" : ""}`}
+              disabled={disabled}
+              aria-pressed={pixyHid.autoRotateEnabled === true}
+              aria-label="Auto Rotate"
+              onClick={() => void pixyHid.setAutoRotateEnabled(!(pixyHid.autoRotateEnabled ?? false))}
+            >
+              <span />
+            </button>
+          </div>
+          <small className="privacy-help">Mirror flips only apply while the video preview is streaming.</small>
         </div>
 
-        <div className="smart-control smart-toggle-row">
+        <div className="smart-control">
           <div className="smart-label">
-            <ScanFace size={16} />
-            <span>Auto Rotate</span>
+            <Crosshair size={16} />
+            <span>Focus</span>
           </div>
-          <button
-            className={`toggle-switch ${pixyHid.autoRotateEnabled ? "is-on" : ""}`}
-            disabled={disabled}
-            aria-pressed={pixyHid.autoRotateEnabled === true}
-            aria-label="Auto Rotate"
-            onClick={() => void pixyHid.setAutoRotateEnabled(!(pixyHid.autoRotateEnabled ?? false))}
-          >
-            <span />
-          </button>
+          <div className="privacy-mode-row">
+            <span>Target</span>
+            <div className="segmented">
+              {focusMeteringModes.map((mode) => (
+                <button
+                  key={mode.value}
+                  className={pixyHid.focusMeteringMode === mode.value ? "is-selected" : ""}
+                  disabled={disabled}
+                  onClick={() => void pixyHid.setFocusMeteringMode(mode.value)}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <small className="privacy-help">
+            {pixyHid.focusMeteringMode === "selected_area" && pixyHid.focusMeteringPoint
+              ? `Region metering at ${pixyHid.focusMeteringPoint.x},${pixyHid.focusMeteringPoint.y}. Click the preview to aim it.`
+              : "Region meters where you click in the video preview."}
+          </small>
         </div>
 
         <div className="smart-control">
           <div className="smart-label">
             <Volume2 size={16} />
-            <span>Audio</span>
+            <span>Audio DSP</span>
+          </div>
+          <div className="segmented">
+            {audioModes.map((mode) => (
+              <button
+                key={mode.value}
+                className={pixyHid.audioMode === mode.value ? "is-selected" : ""}
+                disabled={disabled}
+                onClick={() => void pixyHid.setAudioMode(mode.value)}
+              >
+                {mode.label}
+              </button>
+            ))}
           </div>
           <div className="mic-mute-row">
             <div>
@@ -219,18 +366,6 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
             </button>
           </div>
           {audio.error && <div className="mini-error">{audio.error}</div>}
-          <div className="segmented">
-            {audioModes.map((mode) => (
-              <button
-                key={mode.value}
-                className={pixyHid.audioMode === mode.value ? "is-selected" : ""}
-                disabled={disabled}
-                onClick={() => void pixyHid.setAudioMode(mode.value)}
-              >
-                {mode.label}
-              </button>
-            ))}
-          </div>
           {micAvailable && (
             <>
               <div className="privacy-mode-row">
@@ -260,9 +395,49 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                   <span />
                 </button>
               </div>
+              {audio.setMeterRunning && (
+                <div className="mic-mute-row">
+                  <div>
+                    <strong>Level meter</strong>
+                    <small>
+                      {audio.status?.meter_running
+                        ? "Live mic level"
+                        : micMuted
+                          ? "Meters nothing while muted"
+                          : "Read the PIXY mic level"}
+                    </small>
+                  </div>
+                  <button
+                    className={`toggle-switch ${audio.status?.meter_running ? "is-on" : ""}`}
+                    disabled={audio.pending}
+                    aria-pressed={audio.status?.meter_running ?? false}
+                    aria-label="Mic level meter"
+                    onClick={() => void audio.setMeterRunning?.(!(audio.status?.meter_running ?? false))}
+                  >
+                    <span />
+                  </button>
+                </div>
+              )}
+              {audio.status?.meter_running === true && (
+                <div
+                  className="mic-level-meter"
+                  role="meter"
+                  aria-label="Mic level"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={audio.status.level ?? 0}
+                >
+                  <div className="mic-level-fill" style={{ width: `${audio.status.level ?? 0}%` }} />
+                </div>
+              )}
               {audio.status?.default_source === false && (
                 <button className="primary-action" disabled={audio.pending} onClick={() => void audio.setDefaultSource()}>
                   Set as default microphone
+                </button>
+              )}
+              {audio.status?.default_source === true && audio.status?.previous_default_source === true && audio.restoreDefaultSource && (
+                <button className="panel-action-button" disabled={audio.pending} onClick={() => void audio.restoreDefaultSource?.()}>
+                  Restore previous microphone
                 </button>
               )}
             </>
@@ -271,41 +446,184 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
 
         <div className="smart-control">
           <div className="smart-label">
-            <Shield size={16} />
+            <Lock size={16} />
             <span>Locks &amp; Imaging</span>
           </div>
-          <div className="segmented">
-            <button disabled={disabled} onClick={() => void pixyHid.setWbLock(true)}>WB lock</button>
-            <button disabled={disabled} onClick={() => void pixyHid.setWbLock(false)}>WB unlock</button>
-          </div>
-          <div className="segmented">
-            <button disabled={disabled} onClick={() => void pixyHid.setEvLock(true)}>EV lock</button>
-            <button disabled={disabled} onClick={() => void pixyHid.setEvLock(false)}>EV unlock</button>
-          </div>
-          <div className="segmented">
-            <button disabled={disabled} onClick={() => void pixyHid.setFocusLock(true)}>Focus lock</button>
-            <button disabled={disabled} onClick={() => void pixyHid.setFocusLock(false)}>Focus unlock</button>
-          </div>
-          <div className="segmented">
-            <button disabled={disabled} onClick={() => void pixyHid.setDenoise(true)}>Denoise on</button>
-            <button disabled={disabled} onClick={() => void pixyHid.setDenoise(false)}>Denoise off</button>
+          <div className="smart-toggle-stack">
+            <ToggleRow
+              label="WB lock"
+              hint="Freeze auto white balance"
+              checked={pixyHid.wbLockEnabled === true}
+              disabled={disabled}
+              onToggle={() => void pixyHid.setWbLock(!(pixyHid.wbLockEnabled ?? false))}
+            />
+            <ToggleRow
+              label="EV lock"
+              hint="Freeze auto exposure"
+              checked={pixyHid.evLockEnabled === true}
+              disabled={disabled}
+              onToggle={() => void pixyHid.setEvLock(!(pixyHid.evLockEnabled ?? false))}
+            />
+            <ToggleRow
+              label="Focus lock"
+              hint="Freeze autofocus position"
+              checked={pixyHid.focusLockEnabled === true}
+              disabled={disabled}
+              onToggle={() => void pixyHid.setFocusLock(!(pixyHid.focusLockEnabled ?? false))}
+            />
+            <ToggleRow
+              label="Denoise"
+              hint={
+                unsupported.includes("denoise_state")
+                  ? "Sent, but this firmware does not report denoise state"
+                  : "Low-light noise reduction"
+              }
+              checked={pixyHid.denoiseEnabled === true}
+              disabled={disabled}
+              onToggle={() => void pixyHid.setDenoise(!(pixyHid.denoiseEnabled ?? false))}
+            />
           </div>
         </div>
 
         <div className="smart-control">
           <div className="smart-label">
-            <Shield size={16} />
-            <span>Power-On Position</span>
+            <Power size={16} />
+            <span>Power-On &amp; Remote</span>
           </div>
           <div className="segmented">
             <button disabled={disabled} onClick={() => void pixyHid.capturePowerOnDefault()}>Save current</button>
             <button disabled={disabled} onClick={() => void pixyHid.disablePowerOnDefault()}>Disable</button>
             <button disabled={disabled} onClick={() => void pixyHid.goToDefault()}>Go to</button>
           </div>
-          <div className="segmented">
-            <button disabled={disabled} onClick={() => void pixyHid.setRemotePairing(true)}>Pair remote</button>
-            <button disabled={disabled} onClick={() => void pixyHid.setRemotePairing(false)}>Unpair</button>
-          </div>
+          <small className="privacy-help">{powerOnDefaultText(pixyHid)}</small>
+          <ToggleRow
+            label="Remote pairing"
+            hint={
+              unsupported.includes("remote_pairing_state")
+                ? "Sent, but this firmware does not report pairing state"
+                : "Pair or unpair the EMEET remote"
+            }
+            checked={pixyHid.remotePairingEnabled === true}
+            disabled={disabled}
+            onToggle={() => void pixyHid.setRemotePairing(!(pixyHid.remotePairingEnabled ?? false))}
+          />
+        </div>
+
+        <div className="smart-control advanced-control">
+          <button
+            className="advanced-toggle"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen((open) => !open)}
+          >
+            {advancedOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+            <span>Advanced</span>
+          </button>
+          {advancedOpen && (
+            <div className="advanced-body">
+              <div className="advanced-group">
+                <div className="advanced-group-title">
+                  <PersonStanding size={14} />
+                  <span>Tracking Target</span>
+                </div>
+                <div className="segmented">
+                  {targetTrackingModes.map((mode) => (
+                    <button
+                      key={mode.value}
+                      className={pixyHid.targetTrackingMode === mode.value ? "is-selected" : ""}
+                      disabled={disabled}
+                      onClick={() => void pixyHid.setTargetTrackingMode(mode.value)}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+                <small className="privacy-help">
+                  Experimental: face and half-body read back on this firmware; full-body is unconfirmed.
+                  Setting a target also enables Tracking.
+                </small>
+              </div>
+
+              <div className="advanced-group">
+                <div className="advanced-group-title">
+                  <Gauge size={14} />
+                  <span>Motor Speed</span>
+                </div>
+                <div className="privacy-mode-row">
+                  <span>Pan {pixyHid.motorSpeedPanDeg ?? "—"}°/s</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={360}
+                    step={1}
+                    disabled={disabled}
+                    value={Number(panSpeedDraft) || 60}
+                    onChange={(event) => setPanSpeedDraft(event.target.value)}
+                    onPointerUp={() => commitMotorSpeed(1, panSpeedDraft, setPanSpeedDraft)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        commitMotorSpeed(1, panSpeedDraft, setPanSpeedDraft);
+                      }
+                    }}
+                  />
+                </div>
+                <div className="privacy-mode-row">
+                  <span>Tilt {pixyHid.motorSpeedTiltDeg ?? "—"}°/s</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={360}
+                    step={1}
+                    disabled={disabled}
+                    value={Number(tiltSpeedDraft) || 60}
+                    onChange={(event) => setTiltSpeedDraft(event.target.value)}
+                    onPointerUp={() => commitMotorSpeed(2, tiltSpeedDraft, setTiltSpeedDraft)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        commitMotorSpeed(2, tiltSpeedDraft, setTiltSpeedDraft);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="advanced-group">
+                <div className="advanced-group-title">
+                  <Move size={14} />
+                  <span>Go To Position</span>
+                </div>
+                <div className="advanced-goto-row">
+                  <input
+                    className="number-input"
+                    type="number"
+                    min={-150}
+                    max={150}
+                    step={1}
+                    disabled={disabled}
+                    aria-label="Pan degrees"
+                    value={panTargetDraft}
+                    onChange={(event) => setPanTargetDraft(event.target.value)}
+                  />
+                  <input
+                    className="number-input"
+                    type="number"
+                    min={-90}
+                    max={90}
+                    step={1}
+                    disabled={disabled}
+                    aria-label="Tilt degrees"
+                    value={tiltTargetDraft}
+                    onChange={(event) => setTiltTargetDraft(event.target.value)}
+                  />
+                  <button className="panel-action-button" disabled={disabled} onClick={goToAbsolute}>
+                    <span>Go</span>
+                  </button>
+                </div>
+                <small className="privacy-help">
+                  {motorPositionText(pixyHid)} Pan −150..150°, tilt −90..90°.
+                </small>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -314,11 +632,67 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
   );
 }
 
+type ToggleRowProps = {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+};
+
+function ToggleRow({ label, hint, checked, disabled, onToggle }: ToggleRowProps) {
+  return (
+    <div className="mic-mute-row">
+      <div>
+        <strong>{label}</strong>
+        {hint ? <small>{hint}</small> : null}
+      </div>
+      <button
+        className={`toggle-switch ${checked ? "is-on" : ""}`}
+        disabled={disabled}
+        aria-pressed={checked}
+        aria-label={label}
+        onClick={onToggle}
+      >
+        <span />
+      </button>
+    </div>
+  );
+}
+
 const controlModes: { value: TrackingMode; label: string }[] = [
   { value: "off", label: "Standard" },
   { value: "tracking", label: "Tracking" },
   { value: "privacy", label: "Privacy" }
 ];
+
+function clampDraft(draft: string, min: number, max: number, fallback: number) {
+  const parsed = Number(draft);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function powerOnDefaultText(pixyHid: UsePixyHidResult) {
+  if (pixyHid.powerOnDefaultEnabled === true) {
+    const position = pixyHid.powerOnDefaultPosition;
+    return position
+      ? `Device reports a stored power-on pose at pan ${position.pan}°, tilt ${position.tilt}°.`
+      : "Device reports a stored power-on pose.";
+  }
+  if (pixyHid.powerOnDefaultEnabled === false) {
+    return "Device reports no power-on pose saved; it boots to center.";
+  }
+  return "Save current stores the present pose as the power-on default.";
+}
+
+function motorPositionText(pixyHid: UsePixyHidResult) {
+  if (pixyHid.motorPosPanDeg === null || pixyHid.motorPosPanDeg === undefined) {
+    return "";
+  }
+  return `Now at pan ${pixyHid.motorPosPanDeg}°, tilt ${pixyHid.motorPosTiltDeg ?? "—"}°.`;
+}
 
 function privacySafetyText(privacySafety: UsePrivacySafetyResult) {
   if (!privacySafety.startupPrivacyEnabled) {

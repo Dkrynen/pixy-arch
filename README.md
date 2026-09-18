@@ -71,6 +71,14 @@ Open `http://127.0.0.1:8000`.
 
 This is the normal user mode: one command and one local address. The first run creates `backend/.venv`, installs backend dependencies, installs frontend packages, and builds the UI. FastAPI then serves both the API and the React app from the same port.
 
+### App launcher and autostart (optional)
+
+- `tools/install-desktop.sh` installs the `Pixy Arch` desktop entry and icons
+  into `~/.local/share` — the launcher starts the backend if needed and opens
+  the deck as a Brave app window (falls back to `xdg-open`).
+- `deploy/systemd/user/pixypilot.service` runs the backend as a systemd user
+  service — install notes are in the unit file header.
+
 ## Configuration
 
 Regular users should edit `config/pixypilot.yaml`.
@@ -154,7 +162,7 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=hidraw
 ```
 
-If the current `/dev/hidrawN` node does not update immediately, unplug and reconnect the camera. A working node should look like `root plugdev` with `crw-rw----`, and `/api/pixy-hid/status` should report `readable: true` and `writable: true`.
+If the current `/dev/hidrawN` node does not update immediately, unplug and reconnect the camera. A working node shows a `+` ACL flag (`crw-rw----+`) and `getfacl` lists your user — granted by the rule's `uaccess` tag — and `/api/pixy-hid/status` should report `readable: true` and `writable: true`.
 
 ## Tests
 

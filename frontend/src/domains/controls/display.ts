@@ -103,7 +103,10 @@ function statefulHint(controls: V4L2Control[], parentName: string, parentLabel: 
     return `Set ${parentLabel} to ${targetLabel}`;
   }
 
-  const valueLabel = parent.value_label ?? parent.menu.find((option) => option.value === parent.value)?.label;
+  const valueLabel =
+    parent.value_label ??
+    parent.menu.find((option) => option.value === parent.value)?.label ??
+    (parent.kind === "bool" ? boolOptionLabels(parent).find((option) => option.value === parent.value)?.label : undefined);
   if (!valueLabel) {
     return `Set ${parentLabel} to ${targetLabel}`;
   }

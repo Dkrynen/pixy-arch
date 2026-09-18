@@ -119,6 +119,9 @@ class WhiteboardPump:
 
     def _open_capture(self) -> cv2.VideoCapture:
         capture = cv2.VideoCapture(self.source_path, cv2.CAP_V4L2)
+        if not capture.isOpened():
+            capture.release()
+            raise OSError(f"unable to open capture device {self.source_path}")
         capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc("M", "J", "P", "G"))
         capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)

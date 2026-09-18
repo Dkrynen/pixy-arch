@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UseAudioResult } from "../../hooks/useAudio";
 import type { UseControlsResult } from "../../hooks/useControls";
@@ -7,9 +7,14 @@ import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
 import type { UseVideoCaptureResult } from "../../hooks/useVideoCapture";
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
+import { appendCommandLog, resetCommandLogForTests } from "../../lib/commandLog";
 import { CommandLogPanel } from "./CommandLogPanel";
 
 describe("CommandLogPanel", () => {
+  beforeEach(() => {
+    resetCommandLogForTests();
+  });
+
   it("summarizes the active camera command state", () => {
     render(
       <CommandLogPanel
@@ -30,6 +35,67 @@ describe("CommandLogPanel", () => {
     expect(screen.getByText("recording")).toBeInTheDocument();
     expect(screen.getByText("mic muted")).toBeInTheDocument();
     expect(screen.getByText("startup privacy sent")).toBeInTheDocument();
+  });
+
+  it("renders timestamped feed entries and an empty state", () => {
+    render(
+      <CommandLogPanel
+        controls={controls()}
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture()}
+        pixyHid={pixyHid()}
+        audio={audio()}
+        privacySafety={privacySafety()}
+      />
+    );
+
+    expect(screen.getByText(/No events yet/)).toBeInTheDocument();
+  });
+
+  it("lists feed entries and filters them by category", () => {
+    appendCommandLog({ category: "hid", message: "tracking:privacy", tone: "ok" });
+    appendCommandLog({ category: "system", message: "video4linux add /dev/video0" });
+    appendCommandLog({ category: "record", message: "recording started", tone: "ok" });
+
+    render(
+      <CommandLogPanel
+        controls={controls()}
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture()}
+        pixyHid={pixyHid()}
+        audio={audio()}
+        privacySafety={privacySafety()}
+      />
+    );
+
+    const feed = screen.getByRole("log", { name: "Event feed" });
+    expect(feed).toHaveTextContent("video4linux add /dev/video0");
+    expect(feed).toHaveTextContent("recording started");
+
+    fireEvent.click(screen.getByRole("button", { name: /System/ }));
+    expect(feed).toHaveTextContent("video4linux add /dev/video0");
+    expect(feed).not.toHaveTextContent("recording started");
+
+    fireEvent.click(screen.getByRole("button", { name: /All/ }));
+    expect(feed).toHaveTextContent("recording started");
+  });
+
+  it("clears the feed from the clear button", () => {
+    appendCommandLog({ category: "hid", message: "gesture:on" });
+
+    render(
+      <CommandLogPanel
+        controls={controls()}
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture()}
+        pixyHid={pixyHid()}
+        audio={audio()}
+        privacySafety={privacySafety()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear event log" }));
+    expect(screen.getByText(/No events yet/)).toBeInTheDocument();
   });
 });
 
@@ -165,7 +231,9 @@ function audio(): UseAudioResult {
     setMuted: vi.fn(),
     setVolume: vi.fn(),
     setDefaultSource: vi.fn(),
-    setMonitorRunning: vi.fn()
+    setMonitorRunning: vi.fn(),
+    setMeterRunning: vi.fn(),
+    restoreDefaultSource: vi.fn()
   };
 }
 

@@ -1,0 +1,135 @@
+/* CommandLogPanel-local styles. Global design tokens live in styles.css (P9);
+   these rules only cover the event feed owned by the shell workstream. */
+
+.command-log-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-2);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.command-log-clear:hover {
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+
+.command-log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.command-log-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-2);
+  background: var(--surface-2);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.command-log-filters button em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-2);
+  background: var(--surface-inset);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.command-log-filters button:hover {
+  border-color: var(--border-strong);
+  color: var(--text-1);
+}
+
+.command-log-filters button.is-selected {
+  color: var(--bg);
+  border-color: #ff5cc8;
+  background: #ff5cc8;
+}
+
+.command-log-filters button.is-selected em {
+  color: var(--bg);
+  background: var(--surface-inset);
+}
+
+.command-log-feed {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.command-log-entry {
+  display: grid;
+  grid-template-columns: 62px 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  border-left: 2px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-inset);
+  padding: 4px 8px;
+}
+
+.command-log-entry time {
+  color: var(--text-3);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.command-log-entry-cat {
+  color: var(--text-2);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.command-log-entry code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-1);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-log-entry.tone-ok {
+  border-left-color: var(--ok);
+}
+
+.command-log-entry.tone-warn {
+  border-left-color: var(--warn);
+}
+
+.command-log-entry.tone-warn code {
+  color: color-mix(in srgb, var(--warn) 55%, white);
+}
+
+.command-log-entry.tone-error {
+  border-left-color: var(--danger);
+}
+
+.command-log-entry.tone-error code {
+  color: color-mix(in srgb, var(--danger) 45%, white);
+}

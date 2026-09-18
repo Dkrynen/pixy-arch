@@ -1,0 +1,30 @@
+/* Virtual camera panel extras — owned by the vcam workstream; uses the shared
+   design tokens only. */
+
+.vcam-runtime-stats {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+  color: var(--ok);
+}
+
+.vcam-field-hint {
+  display: block;
+  margin-top: 6px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+.vcam-last-error {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--warn-border);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  word-break: break-word;
+}

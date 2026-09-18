@@ -70,6 +70,8 @@ if frontend_index.exists():
 
     @app.get("/{path:path}", include_in_schema=False)
     async def frontend_fallback(path: str) -> FileResponse:
-        if path.startswith("api/"):
+        # API misses and asset misses must not be answered with index.html:
+        # a JS import receiving HTML fails with a confusing MIME error.
+        if path.startswith("api/") or path.startswith("assets/"):
             raise HTTPException(status_code=404, detail="Not found")
         return FileResponse(frontend_index)

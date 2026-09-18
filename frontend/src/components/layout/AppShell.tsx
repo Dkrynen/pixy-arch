@@ -93,7 +93,12 @@ export function AppShell({
             label={devices.selectedDevice ? "Device linked" : "No device"}
           />
           <StatusPill tone="info" label={`${activeControls}/${controls.controls.length} active`} />
-          <button className="icon-button" onClick={() => void controls.refresh()} title="Refresh controls">
+          <button
+            className="icon-button"
+            onClick={() => void controls.refresh()}
+            title="Refresh controls"
+            aria-label="Refresh controls"
+          >
             <RefreshCw size={18} />
           </button>
         </div>
@@ -103,9 +108,21 @@ export function AppShell({
         <DeviceRail devices={devices} controls={controls} videoFormats={videoFormats} pixyHid={pixyHid} />
 
         <div className="main-console">
-          {controls.error && <div className="error-strip">{controls.error}</div>}
-          {devices.error && <div className="error-strip">{devices.error}</div>}
-          {controlPresets.error && <div className="error-strip">{controlPresets.error}</div>}
+          {controls.error && (
+            <div className="error-strip" role="alert">
+              {controls.error}
+            </div>
+          )}
+          {devices.error && (
+            <div className="error-strip" role="alert">
+              {devices.error}
+            </div>
+          )}
+          {controlPresets.error && (
+            <div className="error-strip" role="alert">
+              {controlPresets.error}
+            </div>
+          )}
           {view === "control" ? (
             <ControlDeck
               deviceName={devices.selectedDeviceName}

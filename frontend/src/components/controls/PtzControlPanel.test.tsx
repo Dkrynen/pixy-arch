@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ControlGroup } from "../../domains/controls/grouping";
 import type { UseControlsResult } from "../../hooks/useControls";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
-import type { V4L2Control } from "../../types/api";
+import type { PixyHidQueryName, PixyHidRawQueryResult, V4L2Control } from "../../types/api";
 import { PtzControlPanel } from "./PtzControlPanel";
 
 function control(overrides: Partial<V4L2Control>): V4L2Control {
@@ -87,9 +87,61 @@ function pixyHid(overrides: Partial<UsePixyHidResult> = {}): UsePixyHidResult {
   };
 }
 
+function floatsHex(...values: number[]): string {
+  const buffer = new ArrayBuffer(4 * values.length);
+  const view = new DataView(buffer);
+  values.forEach((value, index) => view.setFloat32(index * 4, value, true));
+  return Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join(" ");
+}
+
+function motorPosResponse(axis: number, target: number, current: number): string {
+  return `09 63 01 01 00 09 00 09 0${axis} ${floatsHex(target, current)}`;
+}
+
+function presetStateResponse(slot: number, saved: boolean, pan: number, tilt: number): string {
+  return `09 03 01 16 00 0e 00 0e 0${slot} 0${saved ? 1 : 0} ${floatsHex(pan, tilt, 0)}`;
+}
+
+function motorSpeedResponse(axis: number, degreesPerSecond: number): string {
+  return `09 63 01 03 00 09 00 09 0${axis} ${floatsHex(degreesPerSecond)}`;
+}
+
+function hidQuery(
+  responses: Partial<Record<PixyHidQueryName, string | null>>
+): (name: PixyHidQueryName) => Promise<PixyHidRawQueryResult> {
+  return vi.fn(async (name: PixyHidQueryName) => ({
+    name,
+    request_hex: "",
+    response_hex: responses[name] ?? null,
+    value_index: null,
+    raw_value: null,
+    raw_bits: [],
+    ascii_value: null,
+    ascii_preview: null,
+    path: "/dev/hidraw0"
+  }));
+}
+
+function writablePixyHid(knownControls: string[], overrides: Partial<UsePixyHidResult> = {}): UsePixyHidResult {
+  return pixyHid({
+    status: {
+      available: true,
+      path: "/dev/hidraw0",
+      readable: true,
+      writable: true,
+      reason: null,
+      known_controls: knownControls
+    },
+    ...overrides
+  });
+}
+
 function renderPanel(
   setValue = vi.fn().mockResolvedValue(undefined),
-  pixyHidState: UsePixyHidResult = pixyHid()
+  pixyHidState: UsePixyHidResult = pixyHid(),
+  queryHid?: (name: PixyHidQueryName) => Promise<PixyHidRawQueryResult>
 ) {
   const group: ControlGroup = {
     id: "ptz",
@@ -113,7 +165,7 @@ function renderPanel(
     setValues: vi.fn()
   };
 
-  render(<PtzControlPanel group={group} controls={controls} pixyHid={pixyHidState} />);
+  render(<PtzControlPanel group={group} controls={controls} pixyHid={pixyHidState} queryHid={queryHid} />);
   return setValue;
 }
 
@@ -349,7 +401,7 @@ describe("PtzControlPanel", () => {
     fireEvent.pointerDown(screen.getByRole("button", { name: "Pan right" }));
     fireEvent.pointerUp(screen.getByRole("button", { name: "Pan right" }));
 
-    await waitFor(() => expect(sendPtzVector).toHaveBeenCalledWith({ x: 2, y: 0 }));
+    await waitFor(() => expect(sendPtzVector).toHaveBeenCalledWith({ x: 6, y: 0 }));
     await waitFor(() => expect(sendPtzVector).toHaveBeenCalledWith({ x: 0, y: 0, z: 0 }));
     expect(setValue).not.toHaveBeenCalled();
   });
@@ -392,5 +444,128 @@ describe("PtzControlPanel", () => {
     await waitFor(() => expect(sendPtzVector).toHaveBeenCalledWith({ x: 0, y: 0, z: 0 }));
     expect(setValue).not.toHaveBeenCalled();
     expect(centerButton.querySelector(".ptz-vector-puck")).toBeNull();
+  });
+
+  it("shows the live gimbal position decoded from motor queries", async () => {
+    renderPanel(
+      vi.fn().mockResolvedValue(undefined),
+      writablePixyHid(["ptz_absolute", "ptz_direction"]),
+      hidQuery({
+        motor_pos_pan: motorPosResponse(1, 12.5, 12.4),
+        motor_pos_tilt: motorPosResponse(2, -30, -29.9)
+      })
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText((_content, element) => element?.textContent === "pan +12.4° · tilt -29.9°")).toBeInTheDocument()
+    );
+  });
+
+  it("drives the gimbal with sendPtzAbsolute from the degree sliders", async () => {
+    const sendPtzAbsolute = vi.fn().mockResolvedValue(undefined);
+    renderPanel(
+      vi.fn().mockResolvedValue(undefined),
+      writablePixyHid(["ptz_absolute"], { sendPtzAbsolute }),
+      hidQuery({
+        motor_pos_pan: motorPosResponse(1, 0, 0),
+        motor_pos_tilt: motorPosResponse(2, -10, -10)
+      })
+    );
+
+    const panSlider = await waitFor(() => {
+      const slider = screen.getByRole("slider", { name: "Pan position" });
+      expect(slider).toBeEnabled();
+      return slider;
+    });
+
+    fireEvent.change(panSlider, { target: { value: "25" } });
+    fireEvent.pointerUp(panSlider);
+
+    await waitFor(() => expect(sendPtzAbsolute).toHaveBeenCalledWith(25, -10));
+  });
+
+  it("keeps HID sliders disabled until the first position reading arrives", async () => {
+    renderPanel(
+      vi.fn().mockResolvedValue(undefined),
+      writablePixyHid(["ptz_absolute"]),
+      hidQuery({})
+    );
+
+    expect(screen.getByRole("slider", { name: "Pan position" })).toBeDisabled();
+    expect(screen.getByRole("slider", { name: "Tilt position" })).toBeDisabled();
+  });
+
+  it("programs the motor speed on both axes when a speed is picked", async () => {
+    const user = userEvent.setup();
+    const setMotorSpeed = vi.fn().mockResolvedValue(undefined);
+    renderPanel(
+      vi.fn().mockResolvedValue(undefined),
+      writablePixyHid(["motor_speed"], { setMotorSpeed }),
+      hidQuery({ motor_speed_pan: motorSpeedResponse(1, 60) })
+    );
+
+    await user.click(screen.getByRole("button", { name: "Speed 5" }));
+
+    await waitFor(() => expect(setMotorSpeed).toHaveBeenCalledWith(1, 240));
+    await waitFor(() => expect(setMotorSpeed).toHaveBeenCalledWith(2, 240));
+  });
+
+  it("preselects the speed closest to the device's motor speed", async () => {
+    renderPanel(
+      vi.fn().mockResolvedValue(undefined),
+      writablePixyHid(["motor_speed"]),
+      hidQuery({ motor_speed_pan: motorSpeedResponse(1, 118) })
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Speed 4" })).toHaveClass("is-selected")
+    );
+  });
+
+  it("hydrates preset slots from device state and blocks goto on empty slots", async () => {
+    const loadPtzPreset = vi.fn().mockResolvedValue(undefined);
+    renderPanel(
+      vi.fn().mockResolvedValue(undefined),
+      writablePixyHid(["ptz_preset_load", "ptz_preset_save", "ptz_preset_clear"], { loadPtzPreset }),
+      hidQuery({
+        preset_1_state: presetStateResponse(1, true, 10, -20),
+        preset_2_state: presetStateResponse(2, false, 0, 0),
+        preset_3_state: presetStateResponse(3, true, -5, 5)
+      })
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Preset 1" })).toHaveAttribute(
+        "title",
+        "Preset 1 · pan +10° tilt -20°"
+      )
+    );
+    expect(screen.getByRole("button", { name: "Preset 1" })).toHaveClass("is-filled");
+    expect(screen.getByRole("button", { name: "Preset 3" })).toHaveClass("is-filled");
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Preset 2" }));
+    expect(screen.getByRole("button", { name: "Goto PTZ preset" })).toBeDisabled();
+    expect(loadPtzPreset).not.toHaveBeenCalled();
+  });
+
+  it("nudges with arrow keys from the jog pad", async () => {
+    const sendPtzDirection = vi.fn().mockResolvedValue(undefined);
+    renderPanel(
+      vi.fn().mockResolvedValue(undefined),
+      writablePixyHid(["ptz_direction"], { sendPtzDirection }),
+      hidQuery({})
+    );
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Pan left" }), { key: "ArrowLeft" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Tilt up" }), { key: "ArrowUp" });
+
+    await waitFor(() => expect(sendPtzDirection).toHaveBeenCalledWith("left"));
+    await waitFor(() => expect(sendPtzDirection).toHaveBeenCalledWith("up"));
+  });
+
+  it("surfaces pixyHid errors inside the panel", () => {
+    renderPanel(vi.fn().mockResolvedValue(undefined), pixyHid({ error: "gimbal stalled" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("gimbal stalled");
   });
 });

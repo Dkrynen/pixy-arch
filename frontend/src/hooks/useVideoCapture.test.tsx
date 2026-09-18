@@ -169,4 +169,112 @@ describe("useVideoCapture", () => {
     expect(mockedStopVideoRecording).toHaveBeenCalled();
     expect(result.current.status?.recording).toBe(false);
   });
+
+  it("pauses the preview while recording and resumes it afterwards", async () => {
+    mockedStartVideoRecording.mockResolvedValue({
+      recording: true,
+      device_name: "video0",
+      path: "/recordings/take.mkv",
+      started_at: "2026-09-18T10:00:00Z",
+      reason: null
+    });
+    mockedStopVideoRecording.mockResolvedValue({
+      recording: false,
+      device_name: "video0",
+      path: "/recordings/take.mkv",
+      started_at: "2026-09-18T10:00:00Z",
+      reason: null
+    });
+
+    const { result } = renderHook(() => useVideoCapture("video0", format));
+    await waitFor(() => expect(result.current.status?.recording).toBe(false));
+
+    act(() => {
+      result.current.togglePreview();
+    });
+    expect(result.current.previewEnabled).toBe(true);
+
+    await act(async () => {
+      await result.current.startRecording();
+    });
+    // Recording owns the device; the preview must not keep reconnecting.
+    expect(result.current.previewEnabled).toBe(false);
+    expect(result.current.streamUrl).toBeNull();
+
+    await act(async () => {
+      await result.current.stopRecording();
+    });
+    expect(result.current.previewEnabled).toBe(true);
+    expect(result.current.streamUrl).toContain("/api/devices/video0/stream?");
+  });
+
+  it("does not resume a preview that was off before recording", async () => {
+    mockedStartVideoRecording.mockResolvedValue({
+      recording: true,
+      device_name: "video0",
+      path: "/recordings/take.mkv",
+      started_at: "2026-09-18T10:00:00Z",
+      reason: null
+    });
+    mockedStopVideoRecording.mockResolvedValue({
+      recording: false,
+      device_name: "video0",
+      path: "/recordings/take.mkv",
+      started_at: "2026-09-18T10:00:00Z",
+      reason: null
+    });
+
+    const { result } = renderHook(() => useVideoCapture("video0", format));
+    await waitFor(() => expect(result.current.status?.recording).toBe(false));
+
+    await act(async () => {
+      await result.current.startRecording();
+    });
+    await act(async () => {
+      await result.current.stopRecording();
+    });
+
+    expect(result.current.previewEnabled).toBe(false);
+    expect(result.current.streamUrl).toBeNull();
+  });
+
+  it("polls recording status while a recording is active", async () => {
+    vi.useFakeTimers();
+    mockedStartVideoRecording.mockResolvedValue({
+      recording: true,
+      device_name: "video0",
+      path: "/recordings/take.mkv",
+      started_at: "2026-09-18T10:00:00Z",
+      reason: null
+    });
+
+    const { result } = renderHook(() => useVideoCapture("video0", format));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    mockedFetchVideoRecordingStatus.mockClear();
+    mockedFetchVideoRecordingStatus.mockResolvedValue({
+      recording: true,
+      device_name: "video0",
+      path: "/recordings/take.mkv",
+      started_at: "2026-09-18T10:00:00Z",
+      reason: null
+    });
+
+    await act(async () => {
+      await result.current.startRecording();
+    });
+    expect(mockedFetchVideoRecordingStatus).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(mockedFetchVideoRecordingStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(mockedFetchVideoRecordingStatus).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
 });

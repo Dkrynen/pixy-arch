@@ -177,13 +177,14 @@ function CompactControlRow({ control, peerControls, disabled, onSetValue, onSetD
           onSetValue={onSetValue}
         />
       </div>
-      {!hasPresets && (
+      {(!hasPresets || action) && (
         <div className="reference-control-output">
-          <output>{hasRange ? draftValue : controlValueText(control)}</output>
+          {!hasPresets && <output>{hasRange ? draftValue : controlValueText(control)}</output>}
           {action && (
             <button
               className="dependency-unlock-button"
               disabled={disabled}
+              title={`${action.label} — unlocks ${controlDisplayLabel(control)}`}
               onClick={() => void onSetDependencyValue(action.parentName, action.value)}
             >
               {action.label}
@@ -201,6 +202,12 @@ type InputProps = RowProps & {
 };
 
 function CompactInput({ control, disabled, draftValue, onDraftValue, onSetValue }: InputProps) {
+  if (control.kind === "unknown") {
+    // The driver reported a control type we cannot safely write — be honest
+    // instead of showing a fake slider.
+    return <span aria-label={`${controlDisplayLabel(control)} is not adjustable`}>Not reported</span>;
+  }
+
   if (control.kind === "bool") {
     return (
       <div className="reference-segmented two-up">

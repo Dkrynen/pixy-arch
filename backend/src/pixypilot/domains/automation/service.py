@@ -5,21 +5,31 @@ import time
 from pathlib import Path
 
 from pixypilot.config import automation_config
+from pixypilot.core.commands import CommandError
+from pixypilot.domains.audio.service import get_audio_service
 from pixypilot.domains.automation.models import AutomationSettings, AutomationStatus
 from pixypilot.domains.pixy_hid.models import TrackingMode
 from pixypilot.domains.pixy_hid.service import PixyHidService, _hex_to_bytes, _parse_tracking_response, get_pixy_hid_service
 
+# Always treated as non-call holders regardless of the configured exclude list:
+# PipeWire/WirePlumber keep the camera node open for device enumeration, and
+# the PixyPilot backend itself (preview streams, probes) is not a call.
+_ENUMERATOR_COMMS = {"pipewire", "wireplumber"}
 
-def _scan_holders(rdev: int, exclude: set[str]) -> list[str]:
+
+def _scan_holders(rdev: int, exclude: set[str], self_pid: int | None = None) -> list[str]:
     holders: set[str] = set()
+    ignored = exclude | _ENUMERATOR_COMMS
     for pid_dir in Path("/proc").iterdir():
         if not pid_dir.name.isdigit():
+            continue
+        if self_pid is not None and int(pid_dir.name) == self_pid:
             continue
         try:
             comm = (pid_dir / "comm").read_text(encoding="utf-8").strip()
         except OSError:
             continue
-        if comm in exclude:
+        if comm in ignored:
             continue
         try:
             fds = list((pid_dir / "fd").iterdir())
@@ -46,6 +56,7 @@ class AutomationService:
         self._camera_in_use = False
         self._holders: list[str] = []
         self._saved_mode: TrackingMode | None = None
+        self._mic_unmuted = False
         self._last_action: str | None = None
 
     async def status(self) -> AutomationStatus:
@@ -54,6 +65,7 @@ class AutomationService:
             camera_in_use=self._camera_in_use,
             holders=self._holders,
             saved_mode=self._saved_mode,
+            mic_unmuted=self._mic_unmuted,
             last_action=self._last_action,
             settings=self.settings,
         )
@@ -79,13 +91,19 @@ class AutomationService:
                 await task
             except asyncio.CancelledError:
                 pass
+        if self._mic_unmuted:
+            # The watcher is going away — undo the mic change it made rather
+            # than leaving the mic open without a call-end to restore it.
+            await self._remute_mic()
 
     async def _watch_loop(self) -> None:
         idle_since: float | None = None
         while True:
             try:
                 rdev = os.stat(self.settings.video_device).st_rdev
-                self._holders = _scan_holders(rdev, set(self.settings.exclude_processes))
+                self._holders = _scan_holders(
+                    rdev, set(self.settings.exclude_processes), self_pid=os.getpid()
+                )
             except OSError:
                 self._holders = []
             in_use = bool(self._holders)
@@ -110,37 +128,72 @@ class AutomationService:
         return service if status.writable else None
 
     async def _on_open(self) -> None:
-        if self.settings.on_open == "none":
+        parts: list[str] = []
+        self._mic_unmuted = False
+        if self.settings.on_open != "none":
+            service = await self._hid()
+            if service is None:
+                parts.append("skipped-hid-unwritable")
+            else:
+                try:
+                    state = await service.query_raw("tracking_state")
+                    self._saved_mode = _parse_tracking_response(_hex_to_bytes(state.response_hex))
+                    if self.settings.on_open == "tracking":
+                        await service.set_tracking("tracking")
+                        parts.append("tracking")
+                except (FileNotFoundError, PermissionError, OSError):
+                    parts.append("tracking-failed")
+        if self.settings.unmute_mic:
+            mic_action = await self._unmute_mic()
+            if mic_action:
+                parts.append(mic_action)
+        if not parts:
             return
-        service = await self._hid()
-        if service is None:
-            self._last_action = "call-start:skipped-hid-unwritable"
-            return
-        try:
-            state = await service.query_raw("tracking_state")
-            self._saved_mode = _parse_tracking_response(_hex_to_bytes(state.response_hex))
-            if self.settings.on_open == "tracking":
-                await service.set_tracking("tracking")
-                self._last_action = "call-start:tracking"
-        except (FileNotFoundError, PermissionError, OSError):
-            self._last_action = "call-start:failed"
+        self._last_action = f"call-start:{'+'.join(parts)}"
 
     async def _on_close(self) -> None:
-        if self.settings.on_close == "none":
+        parts: list[str] = []
+        if self.settings.on_close != "none":
+            service = await self._hid()
+            if service is None:
+                parts.append("skipped-hid-unwritable")
+            else:
+                try:
+                    if self.settings.on_close == "privacy":
+                        await service.set_tracking("privacy")
+                        parts.append("privacy")
+                    elif self.settings.on_close == "previous" and self._saved_mode is not None:
+                        await service.set_tracking(self._saved_mode)
+                        parts.append(f"restore-{self._saved_mode}")
+                except (FileNotFoundError, PermissionError, OSError):
+                    parts.append("tracking-failed")
+        if self._mic_unmuted:
+            # Re-mute only what automation unmuted — user mutes stay untouched.
+            parts.append(await self._remute_mic())
+        if not parts:
             return
-        service = await self._hid()
-        if service is None:
-            self._last_action = "call-end:skipped-hid-unwritable"
-            return
+        self._last_action = f"call-end:{'+'.join(parts)}"
+
+    async def _unmute_mic(self) -> str | None:
         try:
-            if self.settings.on_close == "privacy":
-                await service.set_tracking("privacy")
-                self._last_action = "call-end:privacy"
-            elif self.settings.on_close == "previous" and self._saved_mode is not None:
-                await service.set_tracking(self._saved_mode)
-                self._last_action = f"call-end:restore-{self._saved_mode}"
-        except (FileNotFoundError, PermissionError, OSError):
-            self._last_action = "call-end:failed"
+            audio = get_audio_service()
+            status = await audio.status()
+            if not status.available or status.muted is not True:
+                # Already live or unknowable — nothing for automation to undo.
+                return None
+            await audio.set_mute(False)
+            self._mic_unmuted = True
+            return "unmute"
+        except (FileNotFoundError, CommandError, OSError):
+            return "unmute-failed"
+
+    async def _remute_mic(self) -> str:
+        self._mic_unmuted = False
+        try:
+            await get_audio_service().set_mute(True)
+            return "remute"
+        except (FileNotFoundError, CommandError, OSError):
+            return "remute-failed"
 
 
 _SERVICE = AutomationService()

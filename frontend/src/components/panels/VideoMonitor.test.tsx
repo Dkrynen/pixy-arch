@@ -192,4 +192,143 @@ describe("VideoMonitor", () => {
     expect(restartPreview).toHaveBeenCalledOnce();
     vi.useRealTimers();
   });
+
+  it("shows a connecting state until the first frame loads", () => {
+    render(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture()}
+        pixyHid={pixyHid()}
+      />
+    );
+
+    expect(screen.getByText("Connecting to camera…")).toBeInTheDocument();
+
+    fireEvent.load(screen.getByAltText("Live camera stream"));
+
+    expect(screen.queryByText("Connecting to camera…")).not.toBeInTheDocument();
+  });
+
+  it("gives up reconnecting after repeated failures and offers a retry", () => {
+    vi.useFakeTimers();
+    const restartPreview = vi.fn();
+    render(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture({ restartPreview })}
+        pixyHid={pixyHid()}
+      />
+    );
+    const img = screen.getByAltText("Live camera stream");
+
+    for (const delay of [750, 1500, 2250, 3000]) {
+      fireEvent.error(img);
+      vi.advanceTimersByTime(delay);
+    }
+    fireEvent.error(img);
+
+    expect(screen.getByText("Preview unavailable")).toBeInTheDocument();
+    const retry = screen.getByRole("button", { name: "Retry preview" });
+    fireEvent.click(retry);
+
+    expect(restartPreview).toHaveBeenCalledTimes(5);
+    expect(screen.queryByText("Preview unavailable")).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("shows the privacy overlay while the device reports privacy mode", () => {
+    const hid = pixyHid();
+    hid.deviceTrackingState = "privacy";
+    render(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture()}
+        pixyHid={hid}
+      />
+    );
+
+    expect(screen.getByText("Lens closed")).toBeInTheDocument();
+    expect(screen.getByText(/Privacy mode is on/)).toBeInTheDocument();
+  });
+
+  it("shows recording progress and disables preview while recording", () => {
+    const startedAt = new Date(Date.now() - 65_000).toISOString();
+    render(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture({
+          previewEnabled: false,
+          streamUrl: null,
+          status: {
+            recording: true,
+            device_name: "video0",
+            path: "/recordings/take.mkv",
+            started_at: startedAt,
+            reason: null
+          }
+        })}
+        pixyHid={pixyHid()}
+      />
+    );
+
+    expect(screen.getByText("Recording in progress")).toBeInTheDocument();
+    expect(screen.getByText(/Recording 01:0[4-6]/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show stream" })).toBeDisabled();
+    expect(screen.getByText(/Recording owns the camera/)).toBeInTheDocument();
+  });
+
+  it("does not send focus commands while another HID command is pending", async () => {
+    const setFocusMeteringMode = vi.fn().mockResolvedValue(undefined);
+    const hid = pixyHid(setFocusMeteringMode);
+    hid.pendingCommand = "tracking:privacy";
+    render(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture()}
+        pixyHid={hid}
+      />
+    );
+    const frame = screen.getByAltText("Live camera stream").parentElement!;
+    vi.spyOn(frame, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 1280,
+      height: 720,
+      top: 0,
+      left: 0,
+      right: 1280,
+      bottom: 720,
+      toJSON: () => ({})
+    });
+
+    fireEvent.pointerUp(frame, { clientX: 640, clientY: 360 });
+
+    await Promise.resolve();
+    expect(setFocusMeteringMode).not.toHaveBeenCalled();
+  });
+
+  it("offers a reset to center focus while region focus is active", async () => {
+    const setFocusMeteringMode = vi.fn().mockResolvedValue(undefined);
+    const hid = pixyHid(setFocusMeteringMode);
+    hid.focusMeteringMode = "selected_area";
+    hid.focusMeteringPoint = { x: 64, y: 64 };
+    render(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture()}
+        pixyHid={hid}
+      />
+    );
+
+    expect(screen.getByText("Region focus")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Center" }));
+
+    await waitFor(() => expect(setFocusMeteringMode).toHaveBeenCalledWith("center"));
+  });
 });

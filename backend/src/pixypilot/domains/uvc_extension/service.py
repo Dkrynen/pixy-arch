@@ -76,7 +76,10 @@ class UvcExtensionService:
 
 
 def _probe_selectors_sync(device_path: str, unit_id: int) -> list[UvcExtensionSelectorProbe]:
-    fd = os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        fd = os.open(device_path, os.O_RDWR | os.O_NONBLOCK)
+    except OSError as exc:
+        raise ValueError(f"Cannot open {device_path}: {exc.strerror or exc}") from exc
     try:
         return [_probe_selector(fd, unit_id, selector) for selector in PIXY_EXTENSION_SELECTORS]
     finally:

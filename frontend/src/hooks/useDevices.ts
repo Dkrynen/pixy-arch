@@ -23,9 +23,14 @@ export function useDevices(): UseDevicesResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const refreshInFlight = useRef(false);
+  const refreshQueued = useRef(false);
 
   const refresh = useCallback(async (options: { showLoading?: boolean } = {}) => {
     if (refreshInFlight.current) {
+      // Hotplug events arrive in bursts (one per udev action). Dropping a
+      // refresh while one is in flight can leave the list missing the node
+      // from the final event, so queue a trailing run instead.
+      refreshQueued.current = true;
       return;
     }
     refreshInFlight.current = true;
@@ -49,6 +54,10 @@ export function useDevices(): UseDevicesResult {
     } finally {
       refreshInFlight.current = false;
       setIsLoading(false);
+      if (refreshQueued.current) {
+        refreshQueued.current = false;
+        void refresh({ showLoading: false });
+      }
     }
   }, []);
 

@@ -1,0 +1,46 @@
+/* DeviceRail-local styles. Shared chrome lives in styles.css (P9). */
+
+.device-rec-badge {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--danger) 45%, white);
+  background: var(--danger-soft);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  animation: device-rec-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes device-rec-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.device-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.device-hint-error {
+  color: color-mix(in srgb, var(--danger) 45%, white);
+}
+
+.secondary-button .spin {
+  animation: device-rail-spin 1s linear infinite;
+}
+
+@keyframes device-rail-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

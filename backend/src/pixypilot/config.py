@@ -51,6 +51,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "exclude_processes": ["wireplumber"],
     },
     "firmware": {
+        # NOTE (2026-09-18): this URL (and several guessed alternates) returns
+        # 404 — EMEET appears to have moved/retired the PIXY manifest. The
+        # update check fails honestly ("manifest could not be fetched"); set a
+        # working URL in config/pixypilot.yaml if one is found.
         "manifest_url": "https://www.emeet.ai/device_software/EMEET_STUDIO/pixy/device_upgrade_pixy.json",
     },
     "safety": {

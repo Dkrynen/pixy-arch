@@ -1,6 +1,6 @@
 import { chromium } from "playwright";
 
-const appUrl = process.argv[2] ?? "http://127.0.0.1:5173/";
+const appUrl = process.argv[2] ?? "http://127.0.0.1:8000/";
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -13,19 +13,29 @@ page.on("console", (message) => {
 });
 page.on("pageerror", (error) => logs.push(`pageerror: ${error.message}`));
 
-await page.goto(appUrl, { waitUntil: "networkidle" });
-await page.getByText("PixyPilot").waitFor({ state: "visible" });
+// The app holds an EventSource to /api/hotplug/events open for the life of
+// the page, so "networkidle" never settles. "load" is enough: the waits
+// below cover the data-dependent UI.
+await page.goto(appUrl, { waitUntil: "load" });
+await page.getByRole("heading", { name: "Pixy Arch" }).waitFor({ state: "visible" });
 await page.getByRole("button", { name: /Refresh controls/i }).click();
 await page.waitForFunction(() => document.body.innerText.includes("Ready"));
 await page.getByRole("heading", { name: "PTZ Control" }).waitFor({ state: "visible" });
 await page.getByRole("heading", { name: "Image Control" }).waitFor({ state: "visible" });
 await page.getByRole("heading", { name: "Focus Control" }).waitFor({ state: "visible" });
 await page.getByRole("heading", { name: "Exposure Control" }).waitFor({ state: "visible" });
-await page.getByText("Auto Follow").waitFor({ state: "visible" });
-await page.getByText("Auto Framing").waitFor({ state: "visible" });
-await page.getByText("Speaker Tracking").waitFor({ state: "visible" });
+await page.getByRole("heading", { name: "Smart Pixy" }).waitFor({ state: "visible" });
+await page.getByText("Tracking & Follow").waitFor({ state: "visible" });
 await page.getByText("Gesture Control").waitFor({ state: "visible" });
+await page.getByText("Auto Rotate").waitFor({ state: "visible" });
 await page.screenshot({ path: "/tmp/pixypilot-desktop.png", fullPage: false });
+
+// Diagnostics deck: exercised via the view switch, not visible by default.
+await page.getByRole("button", { name: /Diagnostics/i }).click();
+await page.getByRole("heading", { name: "Future Deck" }).waitFor({ state: "visible" });
+const diagnosticsText = await page.locator("body").innerText();
+await page.getByRole("button", { name: /Control Deck/i }).click();
+await page.getByRole("heading", { name: "PTZ Control" }).waitFor({ state: "visible" });
 
 await page.setViewportSize({ width: 390, height: 900 });
 await page.waitForTimeout(250);
@@ -35,16 +45,17 @@ const bodyText = await page.locator("body").innerText();
 const result = {
   title: await page.title(),
   url: page.url(),
-  hasPixyPilot: bodyText.includes("PixyPilot"),
+  hasPixyArch: bodyText.includes("Pixy Arch"),
   hasPtzControl: bodyText.includes("PTZ Control"),
   hasImageControl: bodyText.includes("Image Control"),
   hasFocusControl: bodyText.includes("Focus Control"),
   hasExposureControl: bodyText.includes("Exposure Control"),
-  hasAutoFollow: bodyText.includes("Auto Follow"),
-  hasAutoFraming: bodyText.includes("Auto Framing"),
-  hasSpeakerTracking: bodyText.includes("Speaker Tracking"),
+  hasSmartPixy: bodyText.includes("Smart Pixy"),
+  hasTrackingFollow: bodyText.toLowerCase().includes("tracking & follow"),
   hasGestureControl: bodyText.includes("Gesture Control"),
-  hasFutureDeck: bodyText.includes("Future Deck"),
+  hasAutoRotate: bodyText.includes("Auto Rotate"),
+  // innerText reflects CSS text-transform; the panel renders as "FUTURE DECK".
+  hasFutureDeck: diagnosticsText.toLowerCase().includes("future deck"),
   hasReadySignal: bodyText.includes("Ready"),
   rangeCount: await page.locator('input[type="range"]').count(),
   toggleCount: await page.locator(".toggle-switch").count(),
@@ -56,15 +67,15 @@ const result = {
 await browser.close();
 
 if (
-  !result.hasPixyPilot ||
+  !result.hasPixyArch ||
   !result.hasPtzControl ||
   !result.hasImageControl ||
   !result.hasFocusControl ||
   !result.hasExposureControl ||
-  !result.hasAutoFollow ||
-  !result.hasAutoFraming ||
-  !result.hasSpeakerTracking ||
+  !result.hasSmartPixy ||
+  !result.hasTrackingFollow ||
   !result.hasGestureControl ||
+  !result.hasAutoRotate ||
   !result.hasFutureDeck ||
   !result.hasReadySignal ||
   result.logs.length > 0

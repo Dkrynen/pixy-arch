@@ -113,6 +113,8 @@ function makeAudio(overrides: Partial<UseAudioResult> = {}): UseAudioResult {
     setVolume: vi.fn(),
     setDefaultSource: vi.fn(),
     setMonitorRunning: vi.fn(),
+    setMeterRunning: vi.fn(),
+    restoreDefaultSource: vi.fn(),
     ...overrides
   };
 }

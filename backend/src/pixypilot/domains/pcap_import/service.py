@@ -11,6 +11,22 @@ from pixypilot.domains.pcap_import.models import PcapImportRecord
 
 ALLOWED_CAPTURE_SUFFIXES = {".pcap", ".pcapng"}
 MAX_LABEL_LENGTH = 180
+# First four bytes of the capture container, checked while streaming so a
+# renamed text/log file cannot be parked in pcaps/imports as a capture.
+CAPTURE_MAGIC_BYTES = {
+    ".pcap": {
+        b"\xd4\xc3\xb2\xa1",  # libpcap, little-endian
+        b"\xa1\xb2\xc3\xd4",  # libpcap, big-endian
+        b"\x4d\x3c\xb2\xa1",  # libpcap nanosecond, little-endian
+        b"\xa1\xb2\x3c\x4d",  # libpcap nanosecond, big-endian
+    },
+    ".pcapng": {
+        b"\x0a\x0d\x0d\x0a",  # section header block type
+    },
+}
+# libpcap global header is 24 bytes; a pcapng section header block is at
+# least 28 bytes. Anything shorter is not a usable capture.
+MIN_CAPTURE_SIZE_BYTES = {".pcap": 24, ".pcapng": 28}
 
 
 class PcapImportService:
@@ -39,6 +55,9 @@ class PcapImportService:
         partial_path = output_path.with_suffix(output_path.suffix + ".part")
         digest = hashlib.sha256()
         size_bytes = 0
+        header = bytearray()
+        magic_checked = False
+        expected_magic = CAPTURE_MAGIC_BYTES[suffix]
 
         try:
             with partial_path.open("wb") as handle:
@@ -48,8 +67,18 @@ class PcapImportService:
                     size_bytes += len(chunk)
                     digest.update(chunk)
                     handle.write(chunk)
+                    if not magic_checked:
+                        header.extend(chunk[: 4 - len(header)])
+                        if len(header) >= 4:
+                            magic_checked = True
+                            if bytes(header[:4]) not in expected_magic:
+                                raise ValueError(
+                                    f"File contents do not look like a {suffix} capture"
+                                )
             if size_bytes == 0:
                 raise ValueError("Capture upload was empty")
+            if size_bytes < MIN_CAPTURE_SIZE_BYTES[suffix]:
+                raise ValueError(f"File contents do not look like a {suffix} capture")
             partial_path.replace(output_path)
         except Exception:
             partial_path.unlink(missing_ok=True)
@@ -69,6 +98,19 @@ class PcapImportService:
         )
         _metadata_path(output_path).write_text(json.dumps(record.model_dump(mode="json"), indent=2), encoding="utf-8")
         return record
+
+    async def delete_capture(self, capture_id: str) -> PcapImportRecord:
+        output_dir = self.root / "pcaps" / "imports"
+        for record in await self.list_captures():
+            if record.id != capture_id:
+                continue
+            capture_path = Path(record.file_path)
+            if capture_path.parent != output_dir.resolve() and capture_path.parent != output_dir:
+                raise ValueError("Capture path is outside the imports directory")
+            capture_path.unlink(missing_ok=True)
+            _metadata_path(capture_path).unlink(missing_ok=True)
+            return record
+        raise LookupError(f"No capture import with id {capture_id}")
 
     async def list_captures(self) -> list[PcapImportRecord]:
         output_dir = self.root / "pcaps" / "imports"

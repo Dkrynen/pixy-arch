@@ -3,7 +3,8 @@ import { Camera, Presentation } from "lucide-react";
 
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
 import type { UseVirtualCamResult } from "../../hooks/useVirtualCam";
-import type { VirtualCamTransform } from "../../types/api";
+import type { VideoFormatOption, VirtualCamTransform } from "../../types/api";
+import "./VirtualCamPanel.css";
 
 type Props = {
   virtualCam: UseVirtualCamResult;
@@ -16,6 +17,23 @@ const rotateOptions: { value: VirtualCamTransform["rotate"]; label: string }[] =
   { value: 180, label: "180°" },
   { value: 270, label: "270°" }
 ];
+
+// V4L2 fourcc → ffmpeg -input_format decoder name (the backend normalizes
+// too, but sending the decoder name keeps the request self-describing).
+const PIXEL_FORMAT_TO_INPUT: Record<string, string> = {
+  MJPG: "mjpeg",
+  YUYV: "yuyv422",
+  NV12: "nv12"
+};
+
+function formatFps(fps: number): string {
+  // 60.00024000096 → "60"; 29.97 → "29.97"
+  return String(Math.round(fps * 100) / 100);
+}
+
+function formatOptionLabel(format: VideoFormatOption): string {
+  return `${format.width}×${format.height} · ${formatFps(format.fps)} fps · ${format.pixel_format}`;
+}
 
 export function VirtualCamPanel({ virtualCam, videoFormats }: Props) {
   const status = virtualCam.status;
@@ -44,10 +62,17 @@ export function VirtualCamPanel({ virtualCam, videoFormats }: Props) {
       input_width: quality?.width,
       input_height: quality?.height,
       input_fps: quality?.fps,
+      input_format: quality ? PIXEL_FORMAT_TO_INPUT[quality.pixel_format] ?? quality.pixel_format.toLowerCase() : undefined,
       output_width: quality?.width,
-      output_height: quality?.height,
+      output_height: quality?.height
     });
   };
+
+  const negotiated =
+    running && status?.output_width && status?.output_height
+      ? `${status.output_width}×${status.output_height}`
+      : null;
+  const consumers = status?.consumers ?? 0;
 
   return (
     <section className="smart-panel">
@@ -60,11 +85,29 @@ export function VirtualCamPanel({ virtualCam, videoFormats }: Props) {
         <span className={`hid-dot ${running ? "is-ready" : status?.available ? "is-warn" : ""}`} />
         <div>
           <strong>{running ? `Streaming (${status?.pipeline})` : status?.available ? "Ready" : "No loopback device"}</strong>
-          <small>{status?.sink_path ?? status?.reason ?? "Checking v4l2loopback"}</small>
+          <small>
+            {running
+              ? `${status?.source_device ?? "camera"} → ${status?.sink_path ?? "loopback"}`
+              : status?.sink_path ?? status?.reason ?? "Checking v4l2loopback"}
+          </small>
+          {running && (
+            <small className="vcam-runtime-stats">
+              {negotiated ?? "format pending"}
+              {status?.output_pixel_format ? ` · ${status.output_pixel_format}` : ""}
+              {status?.fps ? ` · ${formatFps(status.fps)} fps` : ""}
+              {` · ${consumers} ${consumers === 1 ? "consumer" : "consumers"}`}
+              {status?.frames != null ? ` · ${status.frames} frames` : ""}
+            </small>
+          )}
         </div>
       </div>
 
       {virtualCam.error && <div className="mini-error">{virtualCam.error}</div>}
+      {!running && status?.last_error && (
+        <div className="vcam-last-error" role="status">
+          Last run ended: {status.last_error}
+        </div>
+      )}
 
       <div className="smart-control-stack">
         <div className="smart-control">
@@ -92,7 +135,7 @@ export function VirtualCamPanel({ virtualCam, videoFormats }: Props) {
 
         <div className="smart-control">
           <div className="smart-label">
-            <span>Quality</span>
+            <span>Camera format</span>
           </div>
           <select
             className="vcam-quality-select"
@@ -102,11 +145,14 @@ export function VirtualCamPanel({ virtualCam, videoFormats }: Props) {
           >
             {formats.map((format, index) => (
               <option key={`${format.pixel_format}-${format.width}x${format.height}-${format.fps}`} value={index}>
-                {format.label}
+                {formatOptionLabel(format)}
               </option>
             ))}
-            {formats.length === 0 && quality && <option value={0}>{quality.label}</option>}
+            {formats.length === 0 && quality && <option value={0}>{formatOptionLabel(quality)}</option>}
           </select>
+          <small className="vcam-field-hint">
+            Resolution, frame rate and encoding captured from the Pixy — output matches it.
+          </small>
         </div>
 
         {pipeline === "transform" && (
@@ -164,7 +210,7 @@ export function VirtualCamPanel({ virtualCam, videoFormats }: Props) {
         <div className="smart-control">
           {running ? (
             <button className="primary-action" disabled={disabled} onClick={() => void virtualCam.stop()}>
-              Stop virtual camera
+              {virtualCam.pending ? "Stopping…" : "Stop virtual camera"}
             </button>
           ) : (
             <button
@@ -172,7 +218,7 @@ export function VirtualCamPanel({ virtualCam, videoFormats }: Props) {
               disabled={disabled || !(status?.available ?? false)}
               onClick={start}
             >
-              Start virtual camera
+              {virtualCam.pending ? "Starting…" : "Start virtual camera"}
             </button>
           )}
           {running ? (

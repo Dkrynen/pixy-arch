@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#182233"/>
+      <stop offset="1" stop-color="#0a0f18"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="0.5" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="0.38" cy="0.34" r="0.8">
+      <stop offset="0" stop-color="#22314a"/>
+      <stop offset="0.55" stop-color="#101a2c"/>
+      <stop offset="1" stop-color="#05080f"/>
+    </radialGradient>
+  </defs>
+
+  <!-- tile -->
+  <rect x="14" y="14" width="484" height="484" rx="112" fill="url(#bg)"/>
+  <rect x="14" y="14" width="484" height="484" rx="112" fill="none" stroke="#2dd4bf" stroke-opacity="0.18" stroke-width="3"/>
+
+  <!-- gimbal arch wrapping the lens -->
+  <path d="M 106 356 A 173 173 0 1 1 406 356" fill="none" stroke="#2dd4bf" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="106" cy="356" r="24" fill="#0f766e"/>
+  <circle cx="106" cy="356" r="10" fill="#2dd4bf"/>
+  <circle cx="406" cy="356" r="24" fill="#0f766e"/>
+  <circle cx="406" cy="356" r="10" fill="#2dd4bf"/>
+
+  <!-- lens -->
+  <circle cx="256" cy="270" r="118" fill="url(#ring)"/>
+  <circle cx="256" cy="270" r="96" fill="url(#glass)"/>
+  <circle cx="256" cy="270" r="48" fill="#031f1e"/>
+  <circle cx="256" cy="270" r="48" fill="none" stroke="#2dd4bf" stroke-width="5" stroke-opacity="0.6"/>
+  <circle cx="226" cy="238" r="17" fill="#99f6e4" opacity="0.9"/>
+  <circle cx="284" cy="306" r="8" fill="#2dd4bf" opacity="0.55"/>
+
+  <!-- stand/base -->
+  <rect x="208" y="428" width="96" height="20" rx="10" fill="#2dd4bf"/>
+</svg>

@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  fetchPixyHidQuery,
   fetchPixyHidState,
   fetchPixyHidStatus,
   setPixyAudio,
@@ -20,8 +21,10 @@ import {
   setPixyTracking
 } from "../lib/apiClient";
 import { usePixyHid } from "./usePixyHid";
+import type { PixyHidQueryName, PixyHidRawQueryResult } from "../types/api";
 
 vi.mock("../lib/apiClient", () => ({
+  fetchPixyHidQuery: vi.fn(),
   fetchPixyHidState: vi.fn(),
   fetchPixyHidStatus: vi.fn(),
   setPixyAudio: vi.fn(),
@@ -40,6 +43,7 @@ vi.mock("../lib/apiClient", () => ({
   setPixyTracking: vi.fn()
 }));
 
+const mockedFetchPixyHidQuery = vi.mocked(fetchPixyHidQuery);
 const mockedFetchPixyHidState = vi.mocked(fetchPixyHidState);
 const mockedFetchPixyHidStatus = vi.mocked(fetchPixyHidStatus);
 const mockedSetPixyAudio = vi.mocked(setPixyAudio);
@@ -59,6 +63,7 @@ const mockedSetPixyTracking = vi.mocked(setPixyTracking);
 
 describe("usePixyHid", () => {
   beforeEach(() => {
+    mockedFetchPixyHidQuery.mockReset();
     mockedFetchPixyHidState.mockReset();
     mockedFetchPixyHidStatus.mockReset();
     mockedSetPixyAudio.mockReset();
@@ -77,7 +82,11 @@ describe("usePixyHid", () => {
     mockedSetPixyTracking.mockReset();
   });
 
-  function mockDeviceState(rawValue: number | null = 3, rawBits: number[] = [0, 1]) {
+  function mockDeviceState(
+    rawValue: number | null = 3,
+    rawBits: number[] = [0, 1],
+    extras: { audio_mode?: "noise_cancel" | "live" | "original" | null; gesture_enabled?: boolean | null } = {}
+  ) {
     const trackingMode = rawValue === 0 ? "off" : rawValue === 1 ? "tracking" : rawValue === 2 ? "privacy" : null;
     mockedFetchPixyHidState.mockResolvedValue({
       tracking_mode: trackingMode,
@@ -88,13 +97,42 @@ describe("usePixyHid", () => {
       target_tracking_x: 0.5,
       target_tracking_y: 0.5,
       target_tracking_scale: 1,
-      audio_mode: null,
-      audio_raw_value: null,
-      gesture_enabled: null,
-      gesture_raw_value: null,
+      audio_mode: extras.audio_mode ?? null,
+      audio_raw_value: extras.audio_mode ? 2 : null,
+      gesture_enabled: extras.gesture_enabled ?? null,
+      gesture_raw_value: extras.gesture_enabled === undefined ? null : extras.gesture_enabled ? 1 : 0,
       queries: {},
       path: "/dev/hidraw14"
     });
+  }
+
+  function mockWritableStatus() {
+    mockedFetchPixyHidStatus.mockResolvedValue({
+      available: true,
+      path: "/dev/hidraw14",
+      readable: true,
+      writable: true,
+      reason: null,
+      known_controls: ["tracking", "privacy"]
+    });
+  }
+
+  function queryResult(name: PixyHidQueryName, rawValue: number | null, responseHex: string | null): PixyHidRawQueryResult {
+    return {
+      name,
+      request_hex: "09 00 00 00",
+      response_hex: responseHex,
+      value_index: 8,
+      raw_value: rawValue,
+      raw_bits: rawValue === null ? [] : [0],
+      ascii_value: null,
+      ascii_preview: null,
+      path: "/dev/hidraw14"
+    };
+  }
+
+  function mockNoQueryResponses() {
+    mockedFetchPixyHidQuery.mockImplementation(async (name: PixyHidQueryName) => queryResult(name, null, null));
   }
 
   it("loads HID status without sending startup commands", async () => {
@@ -532,5 +570,90 @@ describe("usePixyHid", () => {
 
     expect(mockedLoadPixyPtzPreset).toHaveBeenCalledWith(3);
     expect(result.current.lastCommand).toBe("ptz-preset-load:3");
+  });
+
+  it("propagates device-reported audio mode and gesture state on refresh", async () => {
+    mockDeviceState(0, [], { audio_mode: "live", gesture_enabled: true });
+    mockWritableStatus();
+    mockNoQueryResponses();
+
+    const { result } = renderHook(() => usePixyHid());
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.audioMode).toBe("live");
+    expect(result.current.gestureEnabled).toBe(true);
+    expect(result.current.extendedReadbackReady).toBe(true);
+  });
+
+  it("populates extended readbacks from the query sweep", async () => {
+    mockDeviceState(0, []);
+    mockWritableStatus();
+    mockedFetchPixyHidQuery.mockImplementation(async (name: PixyHidQueryName) => {
+      switch (name) {
+        case "mirror_horizontal_state":
+          return queryResult(name, 1, "09 04 00 07 00 02 00 02 01 01");
+        case "auto_rotate_state":
+          return queryResult(name, 1, "09 04 00 07 00 02 00 02 04 01");
+        case "wb_lock_state":
+          return queryResult(name, 1, "09 04 00 0a 00 01 00 01 01");
+        case "denoise_state":
+          return queryResult(name, null, null);
+        case "auto_privacy_state":
+          return queryResult(name, 10, "09 02 01 01 00 04 00 04 0a 00 00 00");
+        case "motor_speed_pan":
+          return queryResult(name, 1, "09 63 01 03 00 09 00 09 01 00 00 70 42 00 00 00 00");
+        case "power_on_default_state":
+          return queryResult(name, 1, "09 03 01 14 00 0d 00 0d 01 66 66 c6 3f 1f 85 bb c0");
+        default:
+          return queryResult(name, null, null);
+      }
+    });
+
+    const { result } = renderHook(() => usePixyHid());
+
+    await waitFor(() => expect(result.current.extendedReadbackReady).toBe(true));
+
+    expect(result.current.mirrorMode).toBe("h");
+    expect(result.current.autoRotateEnabled).toBe(true);
+    expect(result.current.wbLockEnabled).toBe(true);
+    expect(result.current.denoiseEnabled).toBeNull();
+    expect(result.current.unsupportedReadbacks).toContain("denoise_state");
+    expect(result.current.autoPrivacySeconds).toBe(10);
+    expect(result.current.motorSpeedPanDeg).toBe(60);
+    expect(result.current.powerOnDefaultEnabled).toBe(true);
+    expect(result.current.powerOnDefaultPosition).toEqual({ pan: 1.55, tilt: -5.86 });
+  });
+
+  it("lets the device revert an asserted mirror mode when the flip did not apply", async () => {
+    mockDeviceState(0, []);
+    mockWritableStatus();
+    mockedFetchPixyHidQuery.mockImplementation(async (name: PixyHidQueryName) => {
+      if (name === "mirror_horizontal_state") {
+        return queryResult(name, 0, "09 04 00 07 00 02 00 02 01 00");
+      }
+      if (name === "mirror_vertical_state") {
+        return queryResult(name, 0, "09 04 00 07 00 02 00 02 02 00");
+      }
+      return queryResult(name, null, null);
+    });
+    mockedSetPixyMirror.mockResolvedValue({
+      ok: true,
+      command: "mirror",
+      value: "h",
+      path: "/dev/hidraw14"
+    });
+
+    const { result } = renderHook(() => usePixyHid());
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.setMirrorMode("h");
+    });
+
+    // The device reports both flips still off (no stream running), so the
+    // asserted value is corrected back to the device truth.
+    expect(result.current.mirrorMode).toBe("off");
   });
 });

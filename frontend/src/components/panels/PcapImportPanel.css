@@ -1,0 +1,38 @@
+/* PcapImportPanel-only styles. Extends the shared .pcap-* classes in
+   styles.css with the drop-target state and source picker. */
+
+.pcap-upload-card.is-dragover {
+  outline: 1px dashed var(--accent);
+  outline-offset: 4px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+
+.pcap-source-select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: inherit;
+  font-size: 0.72rem;
+  padding: 4px 6px;
+  text-transform: capitalize;
+}
+
+.pcap-source-select:focus-visible {
+  outline: 2px solid var(--accent, #7ab8ff);
+  outline-offset: 1px;
+}
+
+.pcap-import-more {
+  font-size: 0.72rem;
+  opacity: 0.55;
+  text-align: center;
+  padding: 4px 0;
+}
+
+/* Row gains a third grid column for the delete button (overrides the shared
+   2-column row grid in styles.css via the panel-scoped selector). */
+.pcap-import-panel .pcap-import-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+}

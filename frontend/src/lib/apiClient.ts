@@ -468,3 +468,29 @@ export async function updateAutomationSettings(settings: AutomationSettings): Pr
 export async function fetchFirmwareStatus(checkUpdates = false): Promise<FirmwareStatus> {
   return requestJson<FirmwareStatus>(`/api/firmware/status${checkUpdates ? "?check_updates=true" : ""}`);
 }
+
+// Audio level meter routes (backend: GET/POST /api/audio/meter*). These mirror
+// the monitor helpers above; AudioMonitorResult.level carries the RMS percent.
+export async function fetchAudioMeter(): Promise<AudioMonitorResult> {
+  return requestJson<AudioMonitorResult>("/api/audio/meter");
+}
+
+export async function startAudioMeter(): Promise<AudioMonitorResult> {
+  return requestJson<AudioMonitorResult>("/api/audio/meter/start", { method: "POST" });
+}
+
+export async function stopAudioMeter(): Promise<AudioMonitorResult> {
+  return requestJson<AudioMonitorResult>("/api/audio/meter/stop", { method: "POST" });
+}
+
+// Delete an imported capture (backend: DELETE /api/pcap-imports/{id}).
+export async function deletePcapImport(captureId: string): Promise<PcapImportRecord> {
+  return requestJson<PcapImportRecord>(`/api/pcap-imports/${encodeURIComponent(captureId)}`, {
+    method: "DELETE"
+  });
+}
+
+// Restore the audio default source the backend captured on set-default.
+export async function restoreAudioDefaultSource(): Promise<AudioCommandResult> {
+  return requestJson<AudioCommandResult>("/api/audio/default-source/restore", { method: "POST" });
+}

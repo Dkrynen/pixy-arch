@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchAutomationStatus, updateAutomationSettings } from "../lib/apiClient";
 import type { AutomationSettings, AutomationStatus } from "../types/api";
 
+export type { AutomationSettings, AutomationStatus };
+
 export type UseAutomationResult = {
   status: AutomationStatus | null;
   isLoading: boolean;
@@ -35,20 +37,17 @@ export function useAutomation(): UseAutomationResult {
     return () => window.clearInterval(timer);
   }, [refresh]);
 
-  const applySettings = useCallback(
-    async (settings: AutomationSettings) => {
-      setPending(true);
-      setError(null);
-      try {
-        setStatus(await updateAutomationSettings(settings));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to apply automation settings");
-      } finally {
-        setPending(false);
-      }
-    },
-    []
-  );
+  const applySettings = useCallback(async (settings: AutomationSettings) => {
+    setPending(true);
+    setError(null);
+    try {
+      setStatus(await updateAutomationSettings(settings));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to apply automation settings");
+    } finally {
+      setPending(false);
+    }
+  }, []);
 
   return { status, isLoading, pending, error, refresh, applySettings };
 }

@@ -1,8 +1,11 @@
 import asyncio
+import fcntl
 import os
 import signal
+import struct
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pixypilot.config import virtualcam_device, virtualcam_label
 from pixypilot.domains.virtualcam.models import (
@@ -11,9 +14,30 @@ from pixypilot.domains.virtualcam.models import (
     VirtualCamStatus,
     VirtualCamTransform,
 )
-from pixypilot.domains.whiteboard.pump import WhiteboardPump
+
+if TYPE_CHECKING:
+    from pixypilot.domains.whiteboard.pump import WhiteboardPump
 
 VIDEO4LINUX_SYSFS = Path("/sys/class/video4linux")
+
+# How long the whiteboard pipeline gets to deliver its first frame before the
+# start is reported as a failure instead of a silently-dead "running" state.
+WHITEBOARD_FIRST_FRAME_TIMEOUT_S = 5.0
+# How long to watch a freshly spawned ffmpeg for an early exit (busy device,
+# bad input format, ...). Long enough for v4l2 probing to fail, short enough
+# for the API to stay snappy.
+SPAWN_WATCH_S = 0.5
+
+_V4L2_BUF_TYPE_VIDEO_CAPTURE = 1
+_V4L2_FORMAT_SIZE = 208
+_V4L2_STREAMPARM_SIZE = 204
+_VIDIOC_G_FMT = 0xC0D05604
+_VIDIOC_G_PARM = 0xC0CC5615
+# v4l2_format.fmt is a union containing a userspace pointer, so the pixel
+# format sits at pointer alignment; v4l2_streamparm.parm has no pointer, so
+# capture.timeperframe lands at offset 12 (4-byte type + 8-byte parm header).
+_FMT_UNION_OFFSET = struct.calcsize("P")
+_PARM_TIMEPERFRAME_OFFSET = 12
 
 
 def build_filter_chain(transform: VirtualCamTransform, output_width: int, output_height: int) -> str:
@@ -46,7 +70,7 @@ def build_ffmpeg_command(
         "-f",
         "v4l2",
         "-input_format",
-        "mjpeg",
+        request.input_format,
         "-video_size",
         f"{request.input_width}x{request.input_height}",
         "-framerate",
@@ -95,29 +119,120 @@ def _find_source_device() -> Path | None:
     return None
 
 
-def _find_sink_writer_pid(sink: Path) -> int | None:
-    # An ffmpeg pipeline survives a server restart and keeps owning both the
-    # source and the sink, so look for a stale writer before trusting state.
+def _read_sink_format(sink: Path) -> tuple[int, int, str, float | None] | None:
+    """Negotiated format on the loopback: (width, height, fourcc, fps).
+
+    Returns None when no writer has configured the sink yet — v4l2loopback
+    answers G_FMT/G_PARM with EINVAL until the first writer sets a format.
+    """
+    try:
+        fd = os.open(sink, os.O_RDWR | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        fmt = bytearray(_V4L2_FORMAT_SIZE)
+        struct.pack_into("=I", fmt, 0, _V4L2_BUF_TYPE_VIDEO_CAPTURE)
+        fcntl.ioctl(fd, _VIDIOC_G_FMT, fmt, True)
+        width, height, fourcc_raw = struct.unpack_from("=II4s", fmt, _FMT_UNION_OFFSET)
+        if width <= 0 or height <= 0:
+            return None
+        fps: float | None = None
+        parm = bytearray(_V4L2_STREAMPARM_SIZE)
+        struct.pack_into("=I", parm, 0, _V4L2_BUF_TYPE_VIDEO_CAPTURE)
+        try:
+            fcntl.ioctl(fd, _VIDIOC_G_PARM, parm, True)
+            numerator, denominator = struct.unpack_from("=II", parm, _PARM_TIMEPERFRAME_OFFSET)
+            if numerator > 0 and denominator > 0:
+                fps = denominator / numerator
+        except OSError:
+            pass
+        return width, height, fourcc_raw.decode("ascii", errors="replace"), fps
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def _scan_sink_holders(sink: Path, proc_root: Path = Path("/proc")) -> tuple[int, int | None]:
+    """Count non-writer processes holding the sink open; find the ffmpeg writer.
+
+    Returns (consumers, writer_pid). "Consumers" are processes other than the
+    writer holding the node open — readers like OBS, browsers or ffprobe. An
+    ffmpeg whose last argument is the sink path is the writer (both PixyPilot
+    pipelines and foreign producers match that shape); anything else with the
+    node open counts as a consumer.
+    """
     sink_arg = str(sink).encode()
-    for entry in Path("/proc").iterdir():
+    consumers = 0
+    writer_pid: int | None = None
+    self_pid = os.getpid()
+    for entry in proc_root.iterdir():
         if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        if pid == self_pid:
+            continue
+        try:
+            holds_sink = False
+            for fd in (entry / "fd").iterdir():
+                try:
+                    if os.readlink(fd) == str(sink):
+                        holds_sink = True
+                        break
+                except OSError:
+                    continue
+        except OSError:
+            continue
+        if not holds_sink:
             continue
         try:
             parts = (entry / "cmdline").read_bytes().split(b"\0")
         except OSError:
-            continue
-        if parts and parts[0].endswith(b"ffmpeg") and sink_arg in parts:
-            return int(entry.name)
-    return None
+            parts = []
+        args = [part for part in parts if part]
+        if args and args[0].endswith(b"ffmpeg") and args[-1] == sink_arg:
+            writer_pid = pid
+        else:
+            consumers += 1
+    return consumers, writer_pid
 
 
-def _read_stderr_tail(path: str, max_bytes: int = 4000) -> str:
+def _inspect_sink(sink: Path) -> tuple[int, int | None, tuple[int, int, str, float | None] | None]:
+    consumers, writer_pid = _scan_sink_holders(sink)
+    return consumers, writer_pid, _read_sink_format(sink)
+
+
+def _find_sink_writer_pid(sink: Path) -> int | None:
+    # An ffmpeg pipeline survives a server restart and keeps owning both the
+    # source and the sink, so look for a stale writer before trusting state.
+    _, writer_pid = _scan_sink_holders(sink)
+    return writer_pid
+
+
+def _read_stderr_tail(path: str | None, max_bytes: int = 4000) -> str:
+    if not path:
+        return ""
     try:
         data = Path(path).read_bytes()
     except OSError:
         return ""
     text = data.decode("utf-8", errors="replace").strip()
     return text[-max_bytes:]
+
+
+def _remove_quietly(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        Path(path).unlink()
+    except OSError:
+        pass
+
+
+def _spawn_error_reason(exc: OSError) -> str:
+    if isinstance(exc, FileNotFoundError):
+        return "ffmpeg is not installed or not on PATH"
+    return f"ffmpeg could not be started: {exc}"
 
 
 async def _kill_pid(pid: int) -> None:
@@ -143,12 +258,17 @@ class VirtualCamService:
     # the loopback output instead of the physical device.
     def __init__(self) -> None:
         self._process: asyncio.subprocess.Process | None = None
-        self._pump: WhiteboardPump | None = None
+        self._pump: WhiteboardPump | None = None  # lazily imported (needs cv2)
         self._orphan_pid: int | None = None
         self._pipeline = "transform"
         self._sink_path: Path | None = None
         self._source_path: Path | None = None
         self._transform = VirtualCamTransform()
+        self._requested_fps: float | None = None
+        self._output_width: int | None = None
+        self._output_height: int | None = None
+        self._stderr_path: str | None = None
+        self._last_error: str | None = None
 
     def _running(self) -> bool:
         ffmpeg_running = self._process is not None and self._process.returncode is None
@@ -156,88 +276,216 @@ class VirtualCamService:
         orphan_running = self._orphan_pid is not None
         return ffmpeg_running or pump_running or orphan_running
 
+    def _pump_feeder_pid(self) -> int | None:
+        pump = self._pump
+        feeder = getattr(pump, "_feeder", None)
+        return getattr(feeder, "pid", None)
+
+    def _fail(self, reason: str, sink: Path | None = None, running: bool = False) -> VirtualCamActionResult:
+        self._last_error = reason
+        return VirtualCamActionResult(
+            ok=False,
+            running=running,
+            sink_path=str(sink) if sink else None,
+            reason=reason,
+        )
+
+    def _activate(self, request: VirtualCamStartRequest, source: Path, sink: Path) -> None:
+        self._sink_path = sink
+        self._source_path = source
+        self._transform = request.transform
+        self._pipeline = request.pipeline
+        self._requested_fps = request.input_fps
+        self._output_width = request.output_width
+        self._output_height = request.output_height
+        self._last_error = None
+
     async def status(self) -> VirtualCamStatus:
         sink = _find_loopback_device()
+        # Reap a dead transform ffmpeg before reporting "not running" — the
+        # reason it died (crash, device unplugged) belongs in last_error.
         if self._process is not None and self._process.returncode is not None:
+            exit_code = self._process.returncode
+            tail = _read_stderr_tail(self._stderr_path)
+            _remove_quietly(self._stderr_path)
+            self._stderr_path = None
             self._process = None
+            detail = f": {tail}" if tail else ""
+            self._last_error = f"ffmpeg exited (code {exit_code}){detail}"
         if self._pump is not None and not self._pump.running:
             self._pump = None
+            if self._last_error is None:
+                self._last_error = "whiteboard pipeline stopped unexpectedly"
         if self._orphan_pid is not None:
             try:
                 os.kill(self._orphan_pid, 0)
             except ProcessLookupError:
                 self._orphan_pid = None
-        if not self._running() and sink is not None:
-            self._orphan_pid = _find_sink_writer_pid(sink)
+
+        consumers = 0
+        negotiated: tuple[int, int, str, float | None] | None = None
+        if sink is not None:
+            consumers, writer_pid, negotiated = await asyncio.to_thread(_inspect_sink, sink)
+            if not self._running() and writer_pid is not None:
+                # A foreign/stale ffmpeg owns the sink — report it as running
+                # so the UI does not pretend the virtual cam is free.
+                self._orphan_pid = writer_pid
         running = self._running()
-        pid = self._process.pid if self._process else self._orphan_pid
-        return VirtualCamStatus(
+
+        status = VirtualCamStatus(
             available=sink is not None,
             sink_path=str(sink) if sink else None,
             running=running,
-            pid=pid if running else None,
             pipeline=self._pipeline,
-            source_device=str(self._source_path) if self._source_path else None,
             transform=self._transform,
+            consumers=consumers,
             reason=None if sink else "no v4l2loopback device found (install v4l2loopback-dkms and load the module)",
+            last_error=self._last_error,
         )
+        if not running:
+            return status
+
+        if self._process is not None:
+            status.pid = self._process.pid
+        elif self._pump is not None:
+            status.pid = self._pump_feeder_pid()
+        else:
+            status.pid = self._orphan_pid
+        status.source_device = str(self._source_path) if self._source_path else None
+        if self._pump is not None:
+            status.frames = self._pump.frames_pumped
+        if negotiated is not None:
+            status.output_width, status.output_height, status.output_pixel_format, negotiated_fps = negotiated
+            status.fps = negotiated_fps if negotiated_fps is not None else self._requested_fps
+        else:
+            status.output_width = self._output_width
+            status.output_height = self._output_height
+            status.fps = self._requested_fps
+        return status
 
     async def start(self, request: VirtualCamStartRequest) -> VirtualCamActionResult:
+        if self._orphan_pid is not None:
+            # A status() poll may have recorded a writer that died since;
+            # refuse only on a live one, not on a stale pid.
+            try:
+                os.kill(self._orphan_pid, 0)
+            except ProcessLookupError:
+                self._orphan_pid = None
         if self._running():
             return VirtualCamActionResult(ok=False, running=True, reason="virtual camera already running")
+        self._last_error = None
         sink = Path(request.sink_device) if request.sink_device else _find_loopback_device()
         if sink is None or not sink.exists():
-            return VirtualCamActionResult(ok=False, reason="no v4l2loopback device found; load the module first")
-        orphan = _find_sink_writer_pid(sink)
+            return self._fail("no v4l2loopback device found; load the module first")
+        _, orphan = await asyncio.to_thread(_scan_sink_holders, sink)
         if orphan is not None:
             await _kill_pid(orphan)
         source = Path(request.source_device) if request.source_device else _find_source_device()
         if source is None or not source.exists():
-            return VirtualCamActionResult(ok=False, sink_path=str(sink), reason="no Pixy capture device found")
+            return self._fail("no Pixy capture device found", sink)
         # A 90/270 rotation with default output dims means portrait out.
         if request.transform.rotate in (90, 270) and (
             request.output_width,
             request.output_height,
         ) == (request.input_width, request.input_height):
             request.output_width, request.output_height = request.input_height, request.input_width
-        self._sink_path = sink
-        self._source_path = source
-        self._transform = request.transform
-        self._pipeline = request.pipeline
         if request.pipeline == "whiteboard":
-            self._pump = WhiteboardPump(
-                str(source),
-                str(sink),
-                request.input_width,
-                request.input_height,
-                request.input_fps,
-                request.output_width,
-                request.output_height,
-            )
-            await self._pump.start()
-            return VirtualCamActionResult(ok=True, running=True, sink_path=str(sink))
+            return await self._start_whiteboard(request, source, sink)
+        return await self._start_transform(request, source, sink)
+
+    async def _start_transform(
+        self, request: VirtualCamStartRequest, source: Path, sink: Path
+    ) -> VirtualCamActionResult:
         command = build_ffmpeg_command(request, str(source), str(sink))
         stderr_log = tempfile.NamedTemporaryFile(
             mode="wb", prefix="pixypilot-vcam-", suffix=".log", delete=False
         )
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=stderr_log,
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=stderr_log,
+            )
+        except OSError as exc:
+            stderr_log.close()
+            _remove_quietly(stderr_log.name)
+            return self._fail(_spawn_error_reason(exc), sink)
         stderr_log.close()
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(SPAWN_WATCH_S)
         if process.returncode is not None:
-            reason = _read_stderr_tail(stderr_log.name)
-            return VirtualCamActionResult(
-                ok=False,
-                running=False,
-                sink_path=str(sink),
-                reason=f"ffmpeg exited immediately: {reason}" if reason else "ffmpeg exited immediately",
+            tail = _read_stderr_tail(stderr_log.name)
+            _remove_quietly(stderr_log.name)
+            return self._fail(
+                f"ffmpeg exited immediately: {tail}" if tail else "ffmpeg exited immediately",
+                sink,
             )
         self._process = process
-        return VirtualCamActionResult(ok=True, running=True, pid=self._process.pid, sink_path=str(sink))
+        self._stderr_path = stderr_log.name
+        self._activate(request, source, sink)
+        return VirtualCamActionResult(
+            ok=True,
+            running=True,
+            pid=self._process.pid,
+            sink_path=str(sink),
+            source_device=str(source),
+        )
+
+    async def _start_whiteboard(
+        self, request: VirtualCamStartRequest, source: Path, sink: Path
+    ) -> VirtualCamActionResult:
+        try:
+            from pixypilot.domains.whiteboard.pump import WhiteboardPump
+        except ImportError:
+            return self._fail("whiteboard mode requires opencv (python-cv2), which is not installed", sink)
+        pump = WhiteboardPump(
+            str(source),
+            str(sink),
+            request.input_width,
+            request.input_height,
+            request.input_fps,
+            request.output_width,
+            request.output_height,
+        )
+        try:
+            await pump.start()
+        except OSError as exc:
+            return self._fail(_spawn_error_reason(exc), sink)
+        except Exception as exc:  # cv2/ffmpeg setup failures surface, not 500
+            return self._fail(f"whiteboard pipeline could not be started: {exc}", sink)
+        # Unlike the ffmpeg path, the pump reports "running" the moment its
+        # feeder exists — even when cv2 can never open a busy camera. Wait for
+        # the first real frame so a dead pipeline is not sold as streaming.
+        deadline = WHITEBOARD_FIRST_FRAME_TIMEOUT_S
+        elapsed = 0.0
+        while pump.frames_pumped == 0 and elapsed < deadline:
+            if not pump.running:
+                break
+            await asyncio.sleep(0.25)
+            elapsed += 0.25
+        if pump.frames_pumped == 0:
+            pump_died = not pump.running
+            await pump.stop()
+            if pump_died:
+                return self._fail(
+                    "whiteboard pipeline stopped before producing any frames — "
+                    "the camera may be busy, unreadable, or not delivering video",
+                    sink,
+                )
+            return self._fail(
+                f"whiteboard pipeline produced no frames within {deadline:g}s — "
+                "the camera is busy, unreadable, or not delivering video",
+                sink,
+            )
+        self._pump = pump
+        self._activate(request, source, sink)
+        return VirtualCamActionResult(
+            ok=True,
+            running=True,
+            pid=self._pump_feeder_pid(),
+            sink_path=str(sink),
+            source_device=str(source),
+        )
 
     async def stop(self) -> VirtualCamActionResult:
         pump = self._pump
@@ -246,6 +494,8 @@ class VirtualCamService:
             await pump.stop()
         process = self._process
         self._process = None
+        _remove_quietly(self._stderr_path)
+        self._stderr_path = None
         if process is not None and process.returncode is None:
             process.send_signal(signal.SIGINT)
             try:

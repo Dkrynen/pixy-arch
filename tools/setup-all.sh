@@ -5,15 +5,22 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAILURES=0
+UDEV_RULE="70-pixypilot-hid.rules"
+LEGACY_UDEV_RULE="70-emeet-pixy.rules"
 
 echo "=== [1/3] udev rule for EMEET PIXY HID ==="
-cat > /etc/udev/rules.d/70-emeet-pixy.rules <<'EOF'
-KERNEL=="hidraw*", ATTRS{idVendor}=="328f", ATTRS{idProduct}=="00c0", MODE="0660", TAG+="uaccess"
-EOF
-if udevadm control --reload && udevadm trigger; then
-    echo "udev rule installed and reloaded."
+if install -m 0644 "$ROOT/deploy/udev/$UDEV_RULE" "/etc/udev/rules.d/$UDEV_RULE"; then
+    # Superseded name from an older installer — drop it so only one rule
+    # matches the camera.
+    rm -f "/etc/udev/rules.d/$LEGACY_UDEV_RULE"
+    if udevadm control --reload && udevadm trigger; then
+        echo "udev rule installed and reloaded."
+    else
+        echo "ERROR: udevadm reload/trigger failed." >&2
+        FAILURES=$((FAILURES + 1))
+    fi
 else
-    echo "FAIL: udevadm reload/trigger failed."
+    echo "ERROR: failed to install /etc/udev/rules.d/$UDEV_RULE" >&2
     FAILURES=$((FAILURES + 1))
 fi
 

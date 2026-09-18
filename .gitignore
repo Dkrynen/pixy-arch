@@ -27,3 +27,6 @@ diagnostics/
 
 # User-created camera control presets.
 config/presets.yaml
+
+# Local agent tooling (GSD commands, hooks, local settings)
+.claude/
