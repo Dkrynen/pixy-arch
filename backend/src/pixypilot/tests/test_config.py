@@ -72,3 +72,13 @@ storage:
     assert config.frontend_dist_path(config_path) == project / "frontend" / "build"
     assert config.presets_path(config_path) == project / "config" / "local-presets.yaml"
     assert config.recordings_dir(config_path) == project / "captures"
+
+
+def test_virtualcam_autostart_defaults_on_and_reads_config(tmp_path) -> None:
+    default_path = tmp_path / "default.yaml"
+    default_path.write_text("", encoding="utf-8")
+    assert config.virtualcam_autostart(default_path) is True
+
+    off_path = tmp_path / "off.yaml"
+    off_path.write_text("virtualcam:\n  autostart: false\n", encoding="utf-8")
+    assert config.virtualcam_autostart(off_path) is False

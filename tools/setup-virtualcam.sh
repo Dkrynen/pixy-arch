@@ -18,7 +18,7 @@ install -m 0644 "$ROOT/deploy/modules-load.d/pixypilot-virtualcam.conf" /etc/mod
 
 echo "==> Building/loading module"
 dkms autoinstall
-if ! modprobe v4l2loopback video_nr=10 card_label="PixyPilot Virtual" exclusive_caps=1; then
+if ! modprobe v4l2loopback video_nr=10 card_label="PixyPilot Virtual" exclusive_caps=1 keep_format=1; then
     echo "ERROR: modprobe failed — DKMS build probably did not succeed for kernel $(uname -r)." >&2
     dkms status >&2
     echo "Check /var/lib/dkms/v4l2loopback/*/build/make.log for the compile error." >&2

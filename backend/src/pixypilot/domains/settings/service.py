@@ -13,6 +13,7 @@ from pixypilot.domains.settings.models import (
     SafetySettings,
     ServerSettings,
     StorageSettings,
+    VirtualCamSettings,
 )
 
 
@@ -29,6 +30,7 @@ class SettingsService:
         host = config.backend_host(self.settings_path)
         port = config.backend_port(self.settings_path)
         hid_path = config.hid_path_override(self.settings_path)
+        vcam_device = config.virtualcam_device(self.settings_path)
 
         return AppSettings(
             safety=SafetySettings(start_in_privacy=config.start_in_privacy(self.settings_path)),
@@ -51,6 +53,11 @@ class SettingsService:
             hid=HidSettings(
                 path=str(hid_path) if hid_path is not None else None,
                 report_gap_ms=round(config.hid_report_gap_seconds(self.settings_path) * 1000),
+            ),
+            virtualcam=VirtualCamSettings(
+                device=str(vcam_device) if vcam_device is not None else None,
+                label=config.virtualcam_label(self.settings_path),
+                autostart=config.virtualcam_autostart(self.settings_path),
             ),
             config=ConfigSettings(path=str(config.config_file_path(self.settings_path))),
         )

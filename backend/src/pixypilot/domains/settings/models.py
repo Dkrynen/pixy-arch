@@ -59,6 +59,18 @@ class HidSettingsUpdate(BaseModel):
     report_gap_ms: int | None = Field(default=None, ge=0, le=1000)
 
 
+class VirtualCamSettings(BaseModel):
+    device: str | None = None
+    label: str = "PixyPilot Virtual"
+    autostart: bool = True
+
+
+class VirtualCamSettingsUpdate(BaseModel):
+    device: str | None = None
+    label: str | None = None
+    autostart: bool | None = None
+
+
 class ConfigSettings(BaseModel):
     path: str = "config/pixypilot.yaml"
 
@@ -69,6 +81,7 @@ class AppSettings(BaseModel):
     frontend: FrontendSettings
     storage: StorageSettings
     hid: HidSettings = Field(default_factory=HidSettings)
+    virtualcam: VirtualCamSettings = Field(default_factory=VirtualCamSettings)
     config: ConfigSettings
 
 
@@ -78,3 +91,4 @@ class AppSettingsUpdate(BaseModel):
     frontend: FrontendSettingsUpdate | None = None
     storage: StorageSettingsUpdate | None = None
     hid: HidSettingsUpdate | None = None
+    virtualcam: VirtualCamSettingsUpdate | None = None

@@ -142,3 +142,22 @@
 .video-monitor .video-frame.stream-failed {
   border-color: var(--danger-border);
 }
+
+/* Fill mode: crop to fill the frame — no letterbox bars. Click-to-focus
+   maps through focusPointFromCoverClick so the region math stays exact. */
+.video-monitor .video-frame.fit-cover img {
+  object-fit: cover;
+}
+
+/* True fullscreen preview for clean captures. */
+.video-monitor .video-frame:fullscreen {
+  aspect-ratio: auto;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  background: var(--bg);
+}
+
+.video-monitor .video-frame:fullscreen img {
+  max-height: none;
+}

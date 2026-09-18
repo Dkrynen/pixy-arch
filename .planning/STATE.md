@@ -26,5 +26,27 @@ re-verified live (audio/vcam/meter/pcap-delete/stream-404 all working).
 Camera left in privacy-first state: HID privacy on, gimbal parked −90°, mic
 muted, no orphan ffmpeg/fds/recordings.
 
+Post-ship additions (virtual webcam in OBS + fullscreen preview):
+
+- `virtualcam.autostart` (default on): the transform pipeline starts with the
+  service so /dev/video10 always advertises Video Capture caps — an idle
+  v4l2loopback is output-only and does not enumerate in OBS.
+- Preview redirect: while the vcam owns /dev/video0, a stream request for it
+  transparently serves the loopback (YUYV, negotiated dims) — the live
+  monitor shows exactly what OBS receives. Stop route substitutes the same.
+- Settings: `virtualcam` section in GET/PATCH /api/settings + "Run at
+  startup" toggle in VirtualCamPanel; persists to config/pixypilot.yaml.
+- Fullscreen preview: Fullscreen API button + fill (object-fit: cover)
+  toggle on the video frame; click-to-focus maps through
+  focusPointFromCoverClick so region math stays exact in fill mode.
+- Launcher opens maximized (`--start-maximized`).
+- modprobe conf gains `keep_format=1` (deploy + /etc copy on next
+  setup-virtualcam.sh run or module reload).
+
+Verified live: autostart fired on service restart, /dev/video10 shows
+Video Capture caps, video0 stream request returns the loopback's
+1920x1080 MJPEG, settings PATCH round-trips to yaml.
+Gates: 169 backend + 228 frontend tests, tsc/build clean, smoke green.
+
 Deferred (optional): structured PTZ-position endpoint; vector-motion server
 watchdog; audio-mode readback coverage in panel tests.

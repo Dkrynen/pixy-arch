@@ -32,9 +32,9 @@ if ! curl -sf "$HEALTH" >/dev/null 2>&1; then
 fi
 
 if command -v brave >/dev/null 2>&1; then
-    exec brave --class="$APP_CLASS" --app="$URL"
+    exec brave --class="$APP_CLASS" --start-maximized --app="$URL"
 elif command -v brave-browser >/dev/null 2>&1; then
-    exec brave-browser --class="$APP_CLASS" --app="$URL"
+    exec brave-browser --class="$APP_CLASS" --start-maximized --app="$URL"
 else
     exec xdg-open "$URL"
 fi

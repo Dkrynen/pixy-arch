@@ -30,7 +30,8 @@ function makeSettings(startInPrivacy: boolean): AppSettings {
       recordings_dir: "/FastDrive/EmmetPixy/recordings"
     },
     hid: { path: null, report_gap_ms: 25 },
-    config: { path: "/FastDrive/EmmetPixy/config/pixypilot.yaml" }
+    virtualcam: { device: null, label: "PixyPilot Virtual", autostart: true },
+  config: { path: "/FastDrive/EmmetPixy/config/pixypilot.yaml" }
   };
 }
 

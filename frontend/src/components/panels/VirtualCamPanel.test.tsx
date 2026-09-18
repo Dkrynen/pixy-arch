@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
+import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
 import type { UseVirtualCamResult, VirtualCamRuntimeStatus } from "../../hooks/useVirtualCam";
 import type { VideoFormatOption } from "../../types/api";
 import { VirtualCamPanel } from "./VirtualCamPanel";
@@ -83,9 +84,26 @@ function videoFormats(formats: VideoFormatOption[] = [mjpg1080, mjpg720, yuyv480
   };
 }
 
+
+function privacySafety(overrides: Partial<UsePrivacySafetyResult> = {}): UsePrivacySafetyResult {
+  return {
+    settings: null,
+    settingsLoaded: true,
+    startupPrivacyEnabled: true,
+    startupPrivacyState: "sent",
+    settingsError: null,
+    settingsPending: false,
+    refreshSettings: vi.fn(),
+    saveSettings: vi.fn(),
+    enterPrivacy: vi.fn(),
+    leavePrivacy: vi.fn(),
+    ...overrides
+  };
+}
+
 describe("VirtualCamPanel", () => {
   it("shows ready state with the sink path when idle", () => {
-    render(<VirtualCamPanel virtualCam={virtualCam()} videoFormats={videoFormats()} />);
+    render(<VirtualCamPanel virtualCam={virtualCam()} videoFormats={videoFormats()} privacySafety={privacySafety()} />);
 
     expect(screen.getByText("Ready")).toBeInTheDocument();
     expect(screen.getByText("/dev/video10")).toBeInTheDocument();
@@ -99,6 +117,7 @@ describe("VirtualCamPanel", () => {
           status: status({ available: false, sink_path: null, reason: "no v4l2loopback device found" })
         })}
         videoFormats={videoFormats()}
+        privacySafety={privacySafety()}
       />
     );
 
@@ -108,7 +127,7 @@ describe("VirtualCamPanel", () => {
 
   it("starts with the selected camera format including its pixel format", () => {
     const cam = virtualCam();
-    render(<VirtualCamPanel virtualCam={cam} videoFormats={videoFormats()} />);
+    render(<VirtualCamPanel virtualCam={cam} videoFormats={videoFormats()} privacySafety={privacySafety()} />);
 
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Start virtual camera" }));
@@ -127,7 +146,7 @@ describe("VirtualCamPanel", () => {
   });
 
   it("labels the quality options with resolution, fps and encoding", () => {
-    render(<VirtualCamPanel virtualCam={virtualCam()} videoFormats={videoFormats()} />);
+    render(<VirtualCamPanel virtualCam={virtualCam()} videoFormats={videoFormats()} privacySafety={privacySafety()} />);
 
     expect(screen.getByText("Camera format")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "1920×1080 · 30 fps · MJPG" })).toBeInTheDocument();
@@ -151,6 +170,7 @@ describe("VirtualCamPanel", () => {
           })
         })}
         videoFormats={videoFormats()}
+        privacySafety={privacySafety()}
       />
     );
 
@@ -168,6 +188,7 @@ describe("VirtualCamPanel", () => {
           status: status({ last_error: "ffmpeg exited (code 1): Device or resource busy" })
         })}
         videoFormats={videoFormats()}
+        privacySafety={privacySafety()}
       />
     );
 
@@ -180,6 +201,7 @@ describe("VirtualCamPanel", () => {
       <VirtualCamPanel
         virtualCam={virtualCam({ error: "ffmpeg is not installed or not on PATH" })}
         videoFormats={videoFormats()}
+        privacySafety={privacySafety()}
       />
     );
 
@@ -187,7 +209,7 @@ describe("VirtualCamPanel", () => {
   });
 
   it("hides transform controls in whiteboard mode", () => {
-    render(<VirtualCamPanel virtualCam={virtualCam()} videoFormats={videoFormats()} />);
+    render(<VirtualCamPanel virtualCam={virtualCam()} videoFormats={videoFormats()} privacySafety={privacySafety()} />);
 
     expect(screen.getByText("Mirror")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Whiteboard" }));

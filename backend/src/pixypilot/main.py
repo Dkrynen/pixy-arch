@@ -7,9 +7,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from pixypilot.api.routes import router
-from pixypilot.config import cors_origins, frontend_dist_path, start_in_privacy
+from pixypilot.config import cors_origins, frontend_dist_path, start_in_privacy, virtualcam_autostart
 from pixypilot.domains.automation.service import get_automation_service
 from pixypilot.domains.pixy_hid.service import get_pixy_hid_service
+from pixypilot.domains.virtualcam.models import VirtualCamStartRequest
+from pixypilot.domains.virtualcam.service import get_virtualcam_service
 
 
 async def _apply_start_in_privacy() -> None:
@@ -27,6 +29,24 @@ async def _apply_start_in_privacy() -> None:
         await asyncio.sleep(1.0)
 
 
+async def _autostart_virtualcam() -> None:
+    # Give udev/hotplug a beat to enumerate /dev/video0 + the loopback sink
+    # before claiming the camera — and don't keep retrying forever: a missing
+    # device at boot is reported by /api/virtualcam/status anyway.
+    service = get_virtualcam_service()
+    for _ in range(10):
+        try:
+            status = await service.status()
+            if status.running:
+                return
+            if status.available:
+                await service.start(VirtualCamStartRequest())
+                return
+        except (OSError, ValueError):
+            pass
+        await asyncio.sleep(1.0)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     automation = get_automation_service()
@@ -34,8 +54,11 @@ async def lifespan(app: FastAPI):
         await automation.start()
     if start_in_privacy():
         asyncio.create_task(_apply_start_in_privacy())
+    if virtualcam_autostart():
+        asyncio.create_task(_autostart_virtualcam())
     yield
     await automation.stop()
+    await get_virtualcam_service().stop()
 
 
 app = FastAPI(title="PixyPilot API", version="0.1.0", lifespan=lifespan)

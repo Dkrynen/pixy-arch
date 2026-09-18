@@ -40,6 +40,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "virtualcam": {
         "device": None,
         "label": "PixyPilot Virtual",
+        # Keep the loopback fed from boot so OBS/browsers always see a
+        # capture device — an idle v4l2loopback advertises output-only caps
+        # and does not enumerate as a camera. Set to false to start the
+        # pipeline on demand only.
+        "autostart": True,
     },
     "automation": {
         "enabled": True,
@@ -153,6 +158,10 @@ def virtualcam_device(config_path: Path | None = None) -> Path | None:
 
 def virtualcam_label(config_path: Path | None = None) -> str:
     return _string_at(["virtualcam", "label"], "PixyPilot Virtual", config_path)
+
+
+def virtualcam_autostart(config_path: Path | None = None) -> bool:
+    return _bool_at(["virtualcam", "autostart"], True, config_path)
 
 
 def automation_config(config_path: Path | None = None) -> dict[str, Any]:

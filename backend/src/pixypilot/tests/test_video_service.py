@@ -392,3 +392,43 @@ async def test_reaper_terminates_abandoned_ffmpeg_stream(monkeypatch, tmp_path) 
     assert process.terminated is True
     assert service._stream_processes == {}  # noqa: SLF001
     assert process not in service._stream_progress  # noqa: SLF001
+
+
+async def test_loopback_substitute_redirects_when_virtualcam_owns_source(tmp_path) -> None:
+    from pixypilot.api.routes import _loopback_substitute
+    from pixypilot.domains.virtualcam.models import VirtualCamStatus
+
+    sink = tmp_path / "video10"
+    sink.touch()
+
+    class FakeVcam:
+        async def status(self):
+            return VirtualCamStatus(
+                available=True,
+                sink_path=str(sink),
+                running=True,
+                source_device="/dev/video0",
+                output_width=1920,
+                output_height=1080,
+                output_pixel_format="YUYV",
+                fps=30.0,
+            )
+
+    device, settings = await _loopback_substitute("/dev/video0", FakeVcam())
+    assert device == str(sink)
+    assert settings is not None
+    assert settings.pixel_format == "YUYV"
+    assert (settings.width, settings.height) == (1920, 1080)
+
+
+async def test_loopback_substitute_passes_through_when_virtualcam_idle(tmp_path) -> None:
+    from pixypilot.api.routes import _loopback_substitute
+    from pixypilot.domains.virtualcam.models import VirtualCamStatus
+
+    class FakeVcam:
+        async def status(self):
+            return VirtualCamStatus(available=True, sink_path="/dev/video10", running=False)
+
+    device, settings = await _loopback_substitute("/dev/video0", FakeVcam())
+    assert device == "/dev/video0"
+    assert settings is None

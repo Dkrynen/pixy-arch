@@ -266,6 +266,29 @@ async def upload_pcap_import(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+async def _loopback_substitute(
+    device_path: str,
+    virtualcam_service: VirtualCamService,
+) -> tuple[str, VideoStreamSettings | None]:
+    """When the virtual cam owns the requested capture node, read the loopback
+    instead — the Pixy is single-consumer, so the sink is the only place the
+    feed exists while the pipeline runs. Returns (device, negotiated settings)
+    or (device, None) when no substitution applies.
+    """
+    status = await virtualcam_service.status()
+    if not status.running or not status.sink_path or status.source_device != device_path:
+        return device_path, None
+    if not os.path.exists(status.sink_path):
+        return device_path, None
+    settings = VideoStreamSettings(
+        pixel_format=status.output_pixel_format or "YUYV",
+        width=status.output_width or 1280,
+        height=status.output_height or 720,
+        fps=status.fps or 30,
+    )
+    return status.sink_path, settings
+
+
 @router.get("/devices/{device_name}/stream")
 async def stream_video(
     device_name: str,
@@ -276,6 +299,7 @@ async def stream_video(
     frame_interval_100ns: int | None = Query(default=None, gt=0),
     v4l2_service: V4L2Service = Depends(get_v4l2_service),
     video_service: VideoService = Depends(get_video_service),
+    virtualcam_service: VirtualCamService = Depends(get_virtualcam_service),
 ) -> StreamingResponse:
     try:
         device_path = v4l2_service.device_path_from_name(device_name)
@@ -292,6 +316,10 @@ async def stream_video(
     if not os.path.exists(device_path):
         raise HTTPException(status_code=404, detail=f"{device_path} does not exist (device unplugged?)")
 
+    device_path, substitute = await _loopback_substitute(device_path, virtualcam_service)
+    if substitute is not None:
+        settings = substitute
+
     return StreamingResponse(
         video_service.mjpeg_stream(device_path, settings),
         media_type="multipart/x-mixed-replace; boundary=frame",
@@ -304,9 +332,11 @@ async def stop_video_stream(
     device_name: str,
     v4l2_service: V4L2Service = Depends(get_v4l2_service),
     video_service: VideoService = Depends(get_video_service),
+    virtualcam_service: VirtualCamService = Depends(get_virtualcam_service),
 ) -> VideoStreamStopResult:
     try:
         device_path = v4l2_service.device_path_from_name(device_name)
+        device_path, _ = await _loopback_substitute(device_path, virtualcam_service)
         await video_service.stop_streams(device_path)
         return VideoStreamStopResult(ok=True, device_name=device_name)
     except ValueError as exc:

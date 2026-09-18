@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Camera, Presentation } from "lucide-react";
 
+import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
 import type { UseVirtualCamResult } from "../../hooks/useVirtualCam";
 import type { VideoFormatOption, VirtualCamTransform } from "../../types/api";
@@ -9,6 +10,7 @@ import "./VirtualCamPanel.css";
 type Props = {
   virtualCam: UseVirtualCamResult;
   videoFormats: UseVideoFormatsResult;
+  privacySafety: UsePrivacySafetyResult;
 };
 
 const rotateOptions: { value: VirtualCamTransform["rotate"]; label: string }[] = [
@@ -35,9 +37,13 @@ function formatOptionLabel(format: VideoFormatOption): string {
   return `${format.width}×${format.height} · ${formatFps(format.fps)} fps · ${format.pixel_format}`;
 }
 
-export function VirtualCamPanel({ virtualCam, videoFormats }: Props) {
+export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Props) {
   const status = virtualCam.status;
   const running = status?.running ?? false;
+  const autostart = privacySafety.settings?.virtualcam.autostart ?? true;
+  const toggleAutostart = (enabled: boolean) => {
+    void privacySafety.saveSettings({ virtualcam: { autostart: enabled } });
+  };
   const [pipeline, setPipeline] = useState<"transform" | "whiteboard">("transform");
   const [transform, setTransform] = useState<VirtualCamTransform>({ mirror: false, rotate: 0, zoom: 1.0 });
   const formats = videoFormats.formats;
@@ -221,18 +227,40 @@ export function VirtualCamPanel({ virtualCam, videoFormats }: Props) {
               {virtualCam.pending ? "Starting…" : "Start virtual camera"}
             </button>
           )}
-          {running ? (
-            <small className="vcam-obs-hint">
-              In OBS: add a Video Capture Device source and pick{" "}
-              <strong>{status?.sink_path ?? "the virtual camera"}</strong>. PTZ, tracking, privacy and
-              image controls here keep working while OBS records.
-            </small>
-          ) : (
-            <small className="vcam-obs-hint">
-              Feeds OBS or any recorder through {status?.sink_path ?? "/dev/video10"} while controls
-              stay live. Takes exclusive hold of the camera — preview pauses while streaming.
-            </small>
-          )}
+          <small className="vcam-obs-hint">
+            {running ? (
+              <>
+                In OBS: add a Video Capture Device source and pick{" "}
+                <strong>{status?.sink_path ?? "the virtual camera"}</strong>. The live monitor shows
+                this same feed while the pipeline runs.
+              </>
+            ) : (
+              <>
+                The loopback only advertises a camera while it is streaming — keep it running
+                (or enable startup below) for OBS to see it.
+              </>
+            )}
+          </small>
+        </div>
+
+        <div className="smart-control smart-toggle-row">
+          <div className="smart-label">
+            <span>Run at startup</span>
+          </div>
+          <button
+            className={`toggle-switch ${autostart ? "is-on" : ""}`}
+            disabled={privacySafety.settingsPending || !privacySafety.settingsLoaded}
+            aria-pressed={autostart}
+            aria-label="Run virtual camera at startup"
+            onClick={() => toggleAutostart(!autostart)}
+          >
+            <span />
+          </button>
+          <small className="vcam-field-hint">
+            {autostart
+              ? "Always streaming — OBS sees the camera as soon as the service is up."
+              : "Start the pipeline manually; the device appears in OBS only while streaming."}
+          </small>
         </div>
       </div>
     </section>

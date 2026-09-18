@@ -376,6 +376,11 @@ export type AppSettings = {
     path: string | null;
     report_gap_ms: number;
   };
+  virtualcam: {
+    device: string | null;
+    label: string;
+    autostart: boolean;
+  };
   config: {
     path: string;
   };
@@ -404,5 +409,10 @@ export type AppSettingsUpdate = {
   hid?: {
     path?: string | null;
     report_gap_ms?: number;
+  };
+  virtualcam?: {
+    device?: string | null;
+    label?: string;
+    autostart?: boolean;
   };
 };

@@ -109,3 +109,19 @@ hid:
     await service.update_settings(AppSettingsUpdate())
 
     assert settings_path.read_text(encoding="utf-8") == original_yaml
+
+
+async def test_virtualcam_settings_expose_autostart_and_persist(tmp_path) -> None:
+    settings_path = tmp_path / "pixypilot.yaml"
+    settings_path.write_text("virtualcam:\n  autostart: false\n", encoding="utf-8")
+    service = SettingsService(settings_path)
+
+    settings = await service.get_settings()
+    assert settings.virtualcam.autostart is False
+    assert settings.virtualcam.label == "PixyPilot Virtual"
+
+    updated = await service.update_settings(
+        AppSettingsUpdate(virtualcam={"autostart": True})
+    )
+    assert updated.virtualcam.autostart is True
+    assert "autostart: true" in settings_path.read_text(encoding="utf-8")

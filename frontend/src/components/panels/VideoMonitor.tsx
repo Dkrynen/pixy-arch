@@ -1,17 +1,25 @@
 import {
   Crosshair,
+  Expand,
   Eye,
   EyeOff,
   Loader2,
+  Maximize,
+  Minimize,
   RadioTower,
   Shield,
+  Shrink,
   Square,
   Unplug,
   Video
 } from "lucide-react";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 
-import { focusPointFromContainClick, type FocusPoint } from "../../domains/video/focusPoint";
+import {
+  focusPointFromContainClick,
+  focusPointFromCoverClick,
+  type FocusPoint
+} from "../../domains/video/focusPoint";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import type { UseVideoCaptureResult } from "../../hooks/useVideoCapture";
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
@@ -36,6 +44,9 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
   const [streamReady, setStreamReady] = useState(false);
   const [streamFailed, setStreamFailed] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [fillFrame, setFillFrame] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const retryCountRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
   const canClickFocus =
@@ -60,7 +71,8 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
     }
 
     const rect = event.currentTarget.getBoundingClientRect();
-    const point = focusPointFromContainClick(
+    const mapClick = fillFrame ? focusPointFromCoverClick : focusPointFromContainClick;
+    const point = mapClick(
       { width: rect.width, height: rect.height },
       { width: selectedFormat.width, height: selectedFormat.height },
       { x: event.clientX - rect.left, y: event.clientY - rect.top }
@@ -74,6 +86,23 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
       x: ((event.clientX - rect.left) / rect.width) * 100,
       y: ((event.clientY - rect.top) / rect.height) * 100
     });
+  };
+
+  // Keep isFullscreen in sync with the browser (Esc exits without our button).
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === frameRef.current);
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement === frameRef.current) {
+      void document.exitFullscreen();
+    } else {
+      void frameRef.current?.requestFullscreen();
+    }
   };
 
   // Reset stream/focus bookkeeping whenever a new stream URL is issued.
@@ -188,6 +217,25 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
             {videoCapture.previewEnabled ? "Hide" : "Show"}
           </button>
           <button
+            className="secondary-button icon-button"
+            disabled={!videoCapture.streamUrl}
+            onClick={() => setFillFrame((current) => !current)}
+            aria-pressed={fillFrame}
+            aria-label={fillFrame ? "Fit frame (show whole image)" : "Fill frame (crop to fill)"}
+            title={fillFrame ? "Fit — show the whole image" : "Fill — crop to remove black bars"}
+          >
+            {fillFrame ? <Shrink size={16} /> : <Expand size={16} />}
+          </button>
+          <button
+            className="secondary-button icon-button"
+            disabled={!videoCapture.streamUrl}
+            onClick={toggleFullscreen}
+            aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen preview"}
+            title={isFullscreen ? "Exit fullscreen" : "Fullscreen preview"}
+          >
+            {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+          </button>
+          <button
             className={`secondary-button record-button ${isRecording ? "is-recording" : ""}`}
             disabled={!canUseVideo || videoCapture.pending}
             onClick={() => void (isRecording ? videoCapture.stopRecording() : videoCapture.startRecording())}
@@ -201,8 +249,13 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
       </div>
 
       <div
-        className={`video-frame ${canClickFocus ? "can-click-focus" : ""} ${isPrivacy ? "is-privacy" : ""} ${streamFailed ? "stream-failed" : ""}`}
-        style={selectedFormat ? { aspectRatio: `${selectedFormat.width} / ${selectedFormat.height}` } : undefined}
+        ref={frameRef}
+        className={`video-frame ${fillFrame ? "fit-cover" : ""} ${canClickFocus ? "can-click-focus" : ""} ${isPrivacy ? "is-privacy" : ""} ${streamFailed ? "stream-failed" : ""}`}
+        style={
+          selectedFormat && !isFullscreen
+            ? { aspectRatio: `${selectedFormat.width} / ${selectedFormat.height}` }
+            : undefined
+        }
         onPointerUp={(event) => void handleFocusClick(event)}
         title={canClickFocus ? "Click to set focus target" : undefined}
       >

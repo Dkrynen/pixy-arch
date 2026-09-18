@@ -236,6 +236,7 @@ const settings: AppSettings = {
   frontend: { dist_path: "frontend/dist", dev_server_host: "127.0.0.1", dev_server_port: 5173, single_port: true },
   storage: { presets_path: "config/presets.yaml", recordings_dir: "recordings" },
   hid: { path: null, report_gap_ms: 25 },
+  virtualcam: { device: null, label: "PixyPilot Virtual", autostart: true },
   config: { path: "config/pixypilot.yaml" }
 };
 
