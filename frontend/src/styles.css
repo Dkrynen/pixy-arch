@@ -3352,3 +3352,20 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ok);
   background: var(--ok-soft);
 }
+
+/* Virtual camera quality + OBS guidance */
+.vcam-quality-select {
+  width: 100%;
+}
+
+.vcam-obs-hint {
+  display: block;
+  margin-top: 6px;
+  line-height: 1.45;
+  color: var(--text-muted, #8b9aa8);
+}
+
+.vcam-obs-hint strong {
+  color: var(--accent, #2dd4bf);
+  font-weight: 600;
+}

@@ -57,7 +57,7 @@ export function AppShell({
             <Radar size={24} />
           </div>
           <div>
-            <h1>PixyPilot</h1>
+            <h1>Pixy Arch</h1>
             <p>Linux control deck for EMEET PIXY</p>
           </div>
         </div>

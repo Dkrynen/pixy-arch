@@ -1,6 +1,6 @@
-# PixyPilot
+# Pixy Arch
 
-PixyPilot is an open-source Linux control deck for the EMEET PIXY AI PTZ camera.
+Pixy Arch is an open-source Linux control deck for the EMEET PIXY AI PTZ camera.
 
 It provides a Linux alternative to EMEET Studio and supports Ubuntu 24.04+, PTZ controls, camera presets, AI tracking controls, video preview, recording, native V4L2/HID integration, UVC extension diagnostics, and Windows USBPcap capture import for reverse engineering.
 

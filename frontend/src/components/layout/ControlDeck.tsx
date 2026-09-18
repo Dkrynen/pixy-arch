@@ -61,7 +61,7 @@ export function ControlDeck({
           ))}
         </div>
         <div className="deck-pair">
-          <VirtualCamPanel virtualCam={virtualCam} />
+          <VirtualCamPanel virtualCam={virtualCam} videoFormats={videoFormats} />
           <FirmwarePanel firmware={firmware} />
         </div>
       </div>
