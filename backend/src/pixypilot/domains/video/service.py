@@ -123,7 +123,7 @@ class VideoService:
         # tap — it never opens the loopback, whose single-reader slot stays
         # free for external consumers like OBS.
         command = (
-            build_relay_record_command(output_path, settings.fps)
+            build_relay_record_command(output_path)
             if frame_source is not None
             else build_record_command(device_path, settings, output_path)
         )
@@ -445,19 +445,23 @@ def build_record_command(device_path: str, settings: VideoStreamSettings, output
     ]
 
 
-def build_relay_record_command(output_path: Path, fps: float = 30) -> list[str]:
+def build_relay_record_command(output_path: Path) -> list[str]:
     # Frames arrive on stdin from the virtual-cam MJPEG tap — copy them
-    # verbatim, no device is opened at all. -framerate stamps the muxed
-    # frames at the real rate instead of the mjpeg demuxer's 25fps default.
+    # verbatim, no device is opened at all. The camera's real delivery rate
+    # varies with exposure (dark scene → ~10fps at 1080p), so stamp packets
+    # at wall-clock arrival time instead of a synthetic fixed rate —
+    # otherwise recordings play back fast in low light.
     return [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
+        "-use_wallclock_as_timestamps",
+        "1",
+        "-fflags",
+        "+genpts",
         "-f",
         "mjpeg",
-        "-framerate",
-        _format_fps(fps),
         "-i",
         "pipe:0",
         "-an",

@@ -458,3 +458,6 @@ def test_build_relay_record_command_reads_stdin() -> None:
     assert command[command.index("-i") + 1] == "pipe:0"
     assert command[command.index("-c:v") + 1] == "copy"
     assert command[-1] == "/tmp/out.mkv"
+    # Wall-clock timestamps keep playback speed honest when the camera's
+    # real delivery rate drops below the requested fps in low light.
+    assert command[command.index("-use_wallclock_as_timestamps") + 1] == "1"
