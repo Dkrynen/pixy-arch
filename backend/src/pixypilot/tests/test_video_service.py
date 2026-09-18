@@ -169,3 +169,61 @@ async def test_stop_streams_closes_native_preview_captures(monkeypatch, tmp_path
 
     assert FakeNativeCapture.closed is True
     assert service._native_streams == {}  # noqa: SLF001 - internal registry should be cleared.
+
+
+class DeadOnSpawnProcess(FakeProcess):
+    def __init__(self) -> None:
+        super().__init__()
+        self.returncode = 1
+
+
+async def test_start_recording_reports_early_ffmpeg_exit(monkeypatch, tmp_path) -> None:
+    spawned = DeadOnSpawnProcess()
+
+    async def fake_exec(*args, **kwargs):
+        return spawned
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(video_service_module.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(video_service_module.asyncio, "sleep", no_sleep)
+    service = VideoService(tmp_path)
+
+    try:
+        await service.start_recording(
+            "video0",
+            "/dev/video0",
+            VideoStreamSettings(pixel_format="MJPG", width=1280, height=720, fps=30),
+        )
+    except ValueError as exc:
+        assert "ffmpeg exited immediately" in str(exc)
+    else:
+        raise AssertionError("start_recording should fail when ffmpeg exits on spawn")
+
+    assert service._recording_status.recording is False
+    assert service._recording_status.reason is not None
+    assert service._recording_process is None
+
+
+async def test_start_recording_keeps_live_process(monkeypatch, tmp_path) -> None:
+    spawned = FakeProcess()
+
+    async def fake_exec(*args, **kwargs):
+        return spawned
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(video_service_module.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(video_service_module.asyncio, "sleep", no_sleep)
+    service = VideoService(tmp_path)
+
+    status = await service.start_recording(
+        "video0",
+        "/dev/video0",
+        VideoStreamSettings(pixel_format="MJPG", width=1280, height=720, fps=30),
+    )
+
+    assert status.recording is True
+    assert service._recording_process is spawned

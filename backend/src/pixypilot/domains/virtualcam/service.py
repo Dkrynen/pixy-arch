@@ -1,6 +1,7 @@
 import asyncio
 import os
 import signal
+import tempfile
 from pathlib import Path
 
 from pixypilot.config import virtualcam_device, virtualcam_label
@@ -110,6 +111,15 @@ def _find_sink_writer_pid(sink: Path) -> int | None:
     return None
 
 
+def _read_stderr_tail(path: str, max_bytes: int = 4000) -> str:
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return ""
+    text = data.decode("utf-8", errors="replace").strip()
+    return text[-max_bytes:]
+
+
 async def _kill_pid(pid: int) -> None:
     try:
         os.kill(pid, signal.SIGINT)
@@ -207,12 +217,26 @@ class VirtualCamService:
             await self._pump.start()
             return VirtualCamActionResult(ok=True, running=True, sink_path=str(sink))
         command = build_ffmpeg_command(request, str(source), str(sink))
-        self._process = await asyncio.create_subprocess_exec(
+        stderr_log = tempfile.NamedTemporaryFile(
+            mode="wb", prefix="pixypilot-vcam-", suffix=".log", delete=False
+        )
+        process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=stderr_log,
         )
+        stderr_log.close()
+        await asyncio.sleep(0.5)
+        if process.returncode is not None:
+            reason = _read_stderr_tail(stderr_log.name)
+            return VirtualCamActionResult(
+                ok=False,
+                running=False,
+                sink_path=str(sink),
+                reason=f"ffmpeg exited immediately: {reason}" if reason else "ffmpeg exited immediately",
+            )
+        self._process = process
         return VirtualCamActionResult(ok=True, running=True, pid=self._process.pid, sink_path=str(sink))
 
     async def stop(self) -> VirtualCamActionResult:

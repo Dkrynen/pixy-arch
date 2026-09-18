@@ -1,5 +1,6 @@
 import asyncio
 import subprocess
+import tempfile
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -74,11 +75,27 @@ class VideoService:
         started_at = datetime.now(UTC)
         output_path = self.recordings_dir / f"pixypilot-{device_name}-{started_at.strftime('%Y%m%d-%H%M%S')}.mkv"
         command = build_record_command(device_path, settings, output_path)
-        self._recording_process = await asyncio.create_subprocess_exec(
+        stderr_log = tempfile.NamedTemporaryFile(
+            mode="wb", prefix="pixypilot-record-", suffix=".log", delete=False
+        )
+        process = await asyncio.create_subprocess_exec(
             *command,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=stderr_log,
         )
+        stderr_log.close()
+
+        await asyncio.sleep(0.5)
+        if process.returncode is not None:
+            reason = _read_stderr_tail(stderr_log.name)
+            self._recording_status = VideoRecordingStatus(
+                recording=False,
+                device_name=device_name,
+                reason=f"ffmpeg exited immediately: {reason}" if reason else "ffmpeg exited immediately",
+            )
+            raise ValueError(self._recording_status.reason)
+
+        self._recording_process = process
         self._recording_status = VideoRecordingStatus(
             recording=True,
             device_name=device_name,
@@ -285,6 +302,15 @@ async def _stop_process(process: asyncio.subprocess.Process) -> None:
     except asyncio.TimeoutError:
         process.kill()
         await process.wait()
+
+
+def _read_stderr_tail(path: str, max_bytes: int = 4000) -> str:
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return ""
+    text = data.decode("utf-8", errors="replace").strip()
+    return text[-max_bytes:]
 
 
 def _recordings_dir() -> Path:
