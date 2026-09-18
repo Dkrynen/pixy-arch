@@ -101,3 +101,64 @@ Hardware-behavior + UX pass (user feedback):
 
 Gates: 172 backend + 229 frontend tests, tsc/build clean, smoke green
 (0 console errors), all fixes live-verified on the physical camera.
+
+Relay-fed architecture (2026-09-18 night — fixes "camera doesn't load"):
+
+- Root cause: v4l2loopback is effectively single-reader; a pipe-blocked
+  ffmpeg preview process survived SIGTERM (never checks signals while
+  blocked on a full pipe) and held /dev/video10 forever → every new
+  preview got EBUSY → empty 200 → permanent PREVIEW PAUSED.
+- New architecture: the feeder ffmpeg gains a second output —
+  `-map 0:v -c:v copy -f mjpeg pipe:1` — drained by an in-process
+  FrameRelay (latest-frame fanout, closes subscribers on feeder exit).
+  Preview streams and recordings subscribe to the relay and NEVER open
+  /dev/video10, whose single-reader slot stays free for OBS/call apps.
+  Verified live: relay preview + external sink reader + recording all
+  concurrent.
+- `_stop_process` is cancellation-proof: terminate/kill escalation runs
+  under a shield so client disconnects can't orphan ffmpeg.
+- Both stream paths commit only after a first frame — busy/broken
+  devices return 503 with detail instead of empty 200s.
+- Recording hardening: spawn registered before the watch sleep,
+  local-captured process refs in stop/reap (no post-await attribute
+  races), first-frame guarantee before ffmpeg spawn, feed task
+  cancelled+awaited on all exits, wall-clock timestamps on the mjpeg
+  stdin input (dark scenes deliver ~10fps; synthetic -framerate made
+  playback 3x fast).
+- `_jpeg_frames` is now a marker-walk parser — length-delimited segments
+  are skipped wholesale so embedded JPEG thumbnails (APP1/EXIF) can't
+  truncate a frame; restart markers, stuffed bytes, progressive
+  multi-scan handled; 8MB buffer cap.
+- VirtualCam lifecycle: `_lifecycle_lock` serializes start/stop; the
+  process + relay are registered BEFORE the spawn-watch sleep so
+  status()/stop() see them during startup; bounded wait after kill;
+  prior error preserved instead of generic exit clobbering; configured
+  by-path sink aliases canonicalized via resolve() for holder scans;
+  route no longer kills previews before a start actually commits
+  (stop_streams moved inside _start_locked).
+- Automation watches the sink too: `_scan_all_holders` merges holders
+  of /dev/video0 and /dev/video10 (dedup by rdev), excludes pipewire/
+  wireplumber enumerators by comm and our own feeder by sink-writer
+  cmdline match. Verified live: ffmpeg attach on video10 →
+  call-start:tracking+unmute; detach → call-end:privacy+remute.
+- Lifespan shutdown now stops recordings and streams as well as
+  automation and the vcam.
+- Frontend: bounded stream retries (counter reset only on manual/new
+  streams — previously reset on every auto-retry so the failure UI was
+  unreachable); reconnects on vcam running-state transitions; focus
+  click + aspect math use naturalWidth/Height of actual frames;
+  ownership hints reflect relay reality (preview = "camera tap",
+  recording = "records the camera tap", idle = "available to other
+  apps"); preview stays live during relay-fed recording
+  (keepPreviewDuringRecording); useVirtualCam always polls so external
+  starts register; saveSettings/fullscreen rejections caught.
+- Hardware note: camera advertises 30/60fps at 1080p but real MJPEG
+  delivery drops to ~10fps in a dark room (long exposures) — physics,
+  not a bug. The ISP outputs synthesized all-zero frames while privacy
+  is latched; it releases cleanly on unpark when automation isn't
+  re-parking between attach/detach test cycles.
+
+Gates: 185 backend + 233 frontend tests, tsc/build clean, 10/10
+browser flows (0 console/page errors, real 1920x1080 frames, valid mkv),
+live-verified on hardware. Camera parked in privacy, vcam running,
+automation armed, zero orphan processes.
