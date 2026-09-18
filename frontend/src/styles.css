@@ -2584,3 +2584,771 @@ h2 {
     text-align: left;
   }
 }
+
+/* ============================================================
+   PixyPilot unified design system
+   One accent (teal); semantic hues reserved for state only.
+   ============================================================ */
+
+:root {
+  --bg: #0a0e12;
+  --surface-1: #0f151c;
+  --surface-2: #151d26;
+  --surface-3: #1c2630;
+  --border: rgba(152, 180, 190, 0.13);
+  --border-strong: rgba(152, 180, 190, 0.26);
+  --text-1: #e9f1f0;
+  --text-2: #96a8a9;
+  --text-3: #64787b;
+  --accent: #2ee6c8;
+  --accent-ink: #04211c;
+  --accent-soft: rgba(46, 230, 200, 0.12);
+  --accent-border: rgba(46, 230, 200, 0.38);
+  --ok: #43d98a;
+  --ok-soft: rgba(67, 217, 138, 0.1);
+  --ok-border: rgba(67, 217, 138, 0.3);
+  --warn: #f0b63f;
+  --warn-soft: rgba(240, 182, 63, 0.1);
+  --warn-border: rgba(240, 182, 63, 0.32);
+  --danger: #f7667f;
+  --danger-soft: rgba(247, 102, 127, 0.1);
+  --danger-border: rgba(247, 102, 127, 0.36);
+  --radius-lg: 12px;
+  --radius-md: 9px;
+  --mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+/* --- Canvas ------------------------------------------------ */
+
+body {
+  background:
+    radial-gradient(1200px 480px at 50% -120px, rgba(46, 230, 200, 0.055), transparent 70%),
+    var(--bg);
+}
+
+::selection {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(152, 180, 190, 0.28) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid var(--surface-1);
+  border-radius: 8px;
+  background: rgba(152, 180, 190, 0.24);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+/* --- Panel chrome: one surface, one border, one radius ------ */
+
+.device-rail,
+.control-panel,
+.summary-band,
+.signal-panel,
+.smart-panel,
+.command-log-panel,
+.runtime-panel,
+.experimental-panel,
+.hid-diagnostics-panel,
+.pcap-import-panel,
+.settings-summary-panel,
+.reference-control-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.006)),
+    var(--surface-1);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22);
+}
+
+/* Group accent top-borders removed: identity comes from the
+   title icon chip, not a colored edge. */
+.accent-cyan,
+.accent-lime,
+.accent-amber,
+.accent-magenta,
+.accent-violet,
+.accent-steel,
+.control-panel-image.reference-control-panel,
+.control-panel-focus.reference-control-panel,
+.control-panel-exposure.reference-control-panel {
+  border-top-color: var(--border);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22);
+}
+
+/* Panel headers: icon chip + compact title, same everywhere. */
+
+.panel-title-row {
+  color: var(--text-1);
+}
+
+.panel-title-row > svg {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  padding: 7px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  color: var(--accent);
+  background: var(--accent-soft);
+  box-sizing: border-box;
+}
+
+.panel-title-row h2 {
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.control-panel-image.reference-control-panel .panel-title-row,
+.control-panel-focus.reference-control-panel .panel-title-row,
+.control-panel-exposure.reference-control-panel .panel-title-row {
+  color: var(--text-1);
+}
+
+/* --- Buttons ------------------------------------------------ */
+
+.secondary-button,
+.icon-button,
+.panel-action-button,
+.device-select,
+.preset-select,
+.preset-name-input,
+.number-input,
+.format-picker select,
+select {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-1);
+  background: var(--surface-2);
+}
+
+.secondary-button:hover:not(:disabled),
+.icon-button:hover:not(:disabled),
+.panel-action-button:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  background: var(--surface-3);
+}
+
+.panel-action-button {
+  color: var(--accent);
+}
+
+/* Segmented controls: ghost default, accent when selected. */
+
+.segmented button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+.segmented button:hover:not(:disabled):not(.is-selected) {
+  color: var(--text-1);
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+}
+
+.segmented button.is-selected {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-weight: 800;
+}
+
+/* Privacy mode is the one semantic exception: amber = attention. */
+.segmented button.is-selected[data-tone="warn"] {
+  border-color: var(--warn);
+  color: #241a02;
+  background: var(--warn);
+}
+
+/* Primary action: the one filled accent button. */
+
+.primary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.primary-action:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.primary-action:disabled {
+  opacity: 0.45;
+}
+
+/* Record button: danger semantics. */
+
+.record-button.is-recording {
+  border-color: var(--danger-border);
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* --- Toggles, sliders --------------------------------------- */
+
+.toggle-switch {
+  border: 1px solid var(--border-strong);
+  background: var(--surface-3);
+}
+
+.toggle-switch span {
+  background: #7d9194;
+}
+
+.toggle-switch.is-on {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.toggle-switch.is-on span {
+  background: var(--accent);
+}
+
+input[type="range"] {
+  accent-color: var(--accent);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  accent-color: var(--accent);
+}
+
+/* --- Readbacks & state strips: semantic only ---------------- */
+
+.device-mode-readback {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+
+.device-mode-readback.state-standard,
+.device-mode-readback.state-non_privacy {
+  border-color: var(--ok-border);
+  background: var(--ok-soft);
+}
+
+.device-mode-readback.state-tracking {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.device-mode-readback.state-privacy {
+  border-color: var(--warn-border);
+  background: var(--warn-soft);
+}
+
+.hid-dot.is-ready {
+  background: var(--ok);
+  box-shadow: 0 0 0 4px var(--ok-soft);
+}
+
+.hid-dot.is-warn {
+  background: var(--warn);
+  box-shadow: 0 0 0 4px var(--warn-soft);
+}
+
+.telemetry-stack strong {
+  color: var(--accent);
+}
+
+/* --- Insets -------------------------------------------------- */
+
+.hid-status-row,
+.smart-control,
+.mic-mute-row,
+.diagnostic-summary,
+.command-log-row,
+.diagnostic-query-row,
+.settings-summary-item,
+.device-mode-readback {
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+}
+
+.smart-control,
+.settings-summary-item,
+.diagnostic-query-row,
+.command-log-row,
+.device-mode-readback {
+  border: 1px solid var(--border);
+}
+
+.smart-label {
+  color: var(--text-1);
+  font-weight: 700;
+}
+
+.smart-label > svg {
+  color: var(--accent);
+}
+
+/* --- Status pills -------------------------------------------- */
+
+.status-pill {
+  border-radius: 999px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.tone-good {
+  border-color: var(--ok-border) !important;
+  color: var(--ok) !important;
+  background: var(--ok-soft) !important;
+}
+
+.tone-warn {
+  border-color: var(--warn-border) !important;
+  color: var(--warn) !important;
+  background: var(--warn-soft) !important;
+}
+
+.tone-info {
+  border-color: var(--accent-border) !important;
+  color: var(--accent) !important;
+  background: var(--accent-soft) !important;
+}
+
+/* --- Messaging ------------------------------------------------ */
+
+.privacy-safety-strip {
+  border-color: var(--ok-border);
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.privacy-safety-strip.state-loading,
+.privacy-safety-strip.state-waiting-for-hid,
+.privacy-safety-strip.state-failed {
+  border-color: var(--warn-border);
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.privacy-safety-strip.state-disabled {
+  border-color: var(--border);
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+.mini-warning,
+.capture-needed {
+  border-color: var(--warn-border);
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.mini-error,
+.error-strip {
+  border-color: var(--danger-border);
+  color: #ffb3c0;
+  background: var(--danger-soft);
+}
+
+.mini-success {
+  border-color: var(--ok-border);
+  color: #a5ecc4;
+  background: var(--ok-soft);
+}
+
+.device-ownership-note {
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+.device-ownership-note.is-locked {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* --- Misc text colors to tokens ------------------------------ */
+
+.brand-lockup p,
+.summary-copy p,
+.control-copy small,
+.future-row span,
+.device-meta,
+.device-tile small,
+.hid-status-row small,
+.mic-mute-row small,
+.format-picker small,
+.diagnostic-summary span,
+.diagnostic-query-row small,
+.command-log-row span,
+.last-command {
+  color: var(--text-2);
+}
+
+.last-command {
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.empty-state {
+  border: 1px dashed var(--border-strong);
+  color: var(--text-2);
+  background: transparent;
+}
+
+/* Diagnostics accents -> accent/neutral */
+.diagnostic-summary code,
+.diagnostic-value-stack code,
+.uvc-correlation-summary strong {
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
+.diagnostic-ascii {
+  color: var(--ok) !important;
+}
+
+.uvc-selector-change-fields {
+  color: var(--warn) !important;
+}
+
+.format-picker {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+
+.device-picker-readout {
+  border-color: var(--accent-border);
+  background:
+    linear-gradient(135deg, var(--accent-soft), rgba(255, 255, 255, 0.02)),
+    var(--surface-2);
+  box-shadow: none;
+}
+
+.device-picker-readout svg {
+  color: var(--accent);
+}
+
+.brand-mark {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* View switch: quiet segmented control. */
+.view-switch {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  padding: 3px;
+}
+
+.view-switch button {
+  border: none;
+  border-radius: 8px;
+  color: var(--text-2);
+  background: transparent;
+}
+
+.view-switch button.is-selected {
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-weight: 800;
+}
+
+/* Topbar refinement */
+.topbar {
+  border-color: var(--border);
+  background: rgba(15, 21, 28, 0.92);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+}
+
+/* Video monitor polish */
+.video-frame {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #05070a;
+}
+
+.video-placeholder {
+  color: var(--text-3);
+}
+
+.video-placeholder svg {
+  color: var(--accent);
+}
+
+.video-placeholder strong {
+  color: var(--text-1);
+}
+
+.video-status-row {
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+.video-status-row strong {
+  color: var(--accent);
+}
+
+.video-record-path {
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* Paired bottom row in the main column */
+.deck-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 18px;
+}
+
+@media (max-width: 1180px) {
+  .deck-pair {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Residual hue cleanup ------------------------------------
+   Every remaining group accent -> --accent.
+   Divergent/changed markers -> --warn. Status -> --ok.        */
+
+.ptz-preset-slots button,
+.ptz-speed-buttons button {
+  border-color: var(--border);
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-radius: var(--radius-md);
+}
+
+.ptz-preset-slots button:hover:not(:disabled):not(.is-selected),
+.ptz-speed-buttons button:hover:not(:disabled):not(.is-selected) {
+  color: var(--text-1);
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+}
+
+.ptz-preset-slots button.is-selected,
+.ptz-speed-buttons button.is-selected {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.ptz-direction:hover:not(:disabled),
+.ptz-center:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.ptz-center {
+  color: var(--accent);
+}
+
+.ptz-vector-puck {
+  background: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent-border),
+    0 0 18px var(--accent-soft);
+}
+
+.ptz-footer {
+  border-color: var(--border);
+}
+
+.control-panel-image.reference-control-panel .range-input,
+.control-panel-focus.reference-control-panel .range-input,
+.control-panel-exposure.reference-control-panel .range-input {
+  accent-color: var(--accent);
+}
+
+.reference-segmented button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+.reference-segmented button:hover:not(:disabled):not(.is-selected) {
+  color: var(--text-1);
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+}
+
+.reference-segmented button.is-selected {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.control-preset-toolbar.has-selected-preset .preset-select {
+  border-color: var(--accent-border);
+  background:
+    linear-gradient(180deg, var(--accent-soft), rgba(255, 255, 255, 0.02)),
+    var(--surface-2);
+  box-shadow: none;
+}
+
+.preset-selected-indicator,
+.preset-selected-indicator strong {
+  color: var(--accent) !important;
+}
+
+.capability-row em.is-ok {
+  color: var(--ok);
+}
+
+.capability-row em.is-partial {
+  color: var(--warn);
+}
+
+.settings-summary-item.tone-good svg {
+  color: var(--ok);
+}
+
+.settings-summary-item.tone-warn svg {
+  color: var(--warn);
+}
+
+.settings-summary-item.tone-info svg {
+  color: var(--accent);
+}
+
+.future-row em,
+.uvc-diagnostics-header em,
+.uvc-selector-row strong em {
+  color: var(--warn);
+}
+
+.uvc-selector-row.is-changed {
+  border-color: var(--warn-border);
+  background: var(--warn-soft);
+}
+
+.uvc-selector-row strong em {
+  border-color: var(--warn-border);
+}
+
+.dependency-unlock-button {
+  border-color: var(--warn-border);
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+/* Segmented groups: equal-width columns for any button count. */
+.segmented {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+}
+
+.control-mode-command {
+  grid-template-columns: none;
+}
+
+/* Effect swatch grid rows stay multi-column where authored. */
+.reference-segmented.two-up,
+.reference-segmented.columns-2,
+.reference-segmented.columns-3,
+.reference-segmented.columns-4 {
+  grid-auto-flow: row;
+}
+
+/* --- Preset toolbar & effect swatches ------------------------ */
+
+.effect-preset-strip button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+.effect-preset-strip button:hover:not(:disabled) {
+  color: var(--text-1);
+  border-color: var(--accent-border);
+  background: var(--surface-3);
+}
+
+.preset-save-button {
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.preset-save-button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.preset-icon-button {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+.preset-icon-button:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.preset-selected-indicator {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-3);
+  background: var(--surface-2);
+}
+
+.preset-selected-indicator span {
+  color: var(--text-3);
+}
+
+/* Firmware version readouts: tabular mono */
+.privacy-mode-row strong {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+}
+
+/* Runtime setting badges: needs-restart -> warn, live -> ok */
+.runtime-badge {
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-md);
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.runtime-badge.is-live {
+  border-color: var(--ok-border);
+  color: var(--ok);
+  background: var(--ok-soft);
+}

@@ -56,7 +56,7 @@ describe("useVideoFormats", () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.selectedKey).toBe(formatKey(formats[2]));
+    expect(result.current.selectedKey).toBe(formatKey(formats[0]));
 
     await act(async () => {
       await result.current.setSelectedKey(formatKey(formats[1]));
@@ -83,7 +83,7 @@ describe("useVideoFormats", () => {
     expect(result.current.error).toBe("Unable to set V4L2 format");
   });
 
-  it("prefers a stable desktop preview format over the highest resolution", () => {
-    expect(defaultPreviewFormat(formats)).toBe(formats[2]);
+  it("defaults to the highest available resolution", () => {
+    expect(defaultPreviewFormat(formats)).toBe(formats[0]);
   });
 });

@@ -50,6 +50,9 @@ V4L2_FORMAT_SIZE = 208
 V4L2_PIX_FORMAT_SIZE = 48
 V4L2_STREAMPARM_SIZE = 204
 V4L2_CAPTUREPARM_SIZE = 40
+# The v4l2_format.fmt union contains v4l2_window.clips, a userspace pointer,
+# so on 64-bit the union (and therefore fmt.pix) is aligned to sizeof(void*).
+_FMT_UNION_OFFSET = struct.calcsize("P")
 
 
 class NativeV4L2Error(RuntimeError):
@@ -154,8 +157,11 @@ def build_format_buffer(pixel_format: str, width: int, height: int) -> bytes:
         0,
         0,
     )
-    return struct.pack("=I", V4L2_BUF_TYPE_VIDEO_CAPTURE) + pix_format + bytes(
-        V4L2_FORMAT_SIZE - 4 - V4L2_PIX_FORMAT_SIZE
+    return (
+        struct.pack("=I", V4L2_BUF_TYPE_VIDEO_CAPTURE)
+        + bytes(_FMT_UNION_OFFSET - 4)
+        + pix_format
+        + bytes(V4L2_FORMAT_SIZE - _FMT_UNION_OFFSET - V4L2_PIX_FORMAT_SIZE)
     )
 
 
@@ -190,7 +196,7 @@ def _read_current_format(fd: int) -> VideoFormatOption:
     format_buffer = bytearray(V4L2_FORMAT_SIZE)
     struct.pack_into("=I", format_buffer, 0, V4L2_BUF_TYPE_VIDEO_CAPTURE)
     fcntl.ioctl(fd, VIDIOC_G_FMT, format_buffer, True)
-    width, height, pixel_format = struct.unpack_from("=III", format_buffer, 4)
+    width, height, pixel_format = struct.unpack_from("=III", format_buffer, _FMT_UNION_OFFSET)
 
     frame_interval_100ns = _read_current_frame_interval_100ns(fd)
     fps = 10_000_000 / frame_interval_100ns if frame_interval_100ns is not None else 0.0

@@ -22,9 +22,10 @@ export function formatKey(
 
 export function defaultPreviewFormat(formats: VideoFormatOption[]): VideoFormatOption | null {
   const preferred = [
-    { pixel_format: "MJPG", width: 1280, height: 720, fps: 30 },
+    { pixel_format: "MJPG", width: 3840, height: 2160, fps: 30 },
+    { pixel_format: "MJPG", width: 2560, height: 1440, fps: 30 },
+    { pixel_format: "MJPG", width: 1920, height: 1080, fps: 60 },
     { pixel_format: "MJPG", width: 1920, height: 1080, fps: 30 },
-    { pixel_format: "MJPG", width: 1280, height: 720, fps: 60 },
   ];
   for (const target of preferred) {
     const match = formats.find(
@@ -38,11 +39,11 @@ export function defaultPreviewFormat(formats: VideoFormatOption[]): VideoFormatO
       return match;
     }
   }
-  return (
-    formats.find((format) => format.pixel_format === "MJPG" && format.width <= 1920 && format.height <= 1080) ??
-    formats[0] ??
-    null
+  const mjpeg = formats.filter((format) => format.pixel_format === "MJPG");
+  const largest = [...(mjpeg.length > 0 ? mjpeg : formats)].sort(
+    (a, b) => b.width * b.height - a.width * a.height || b.fps - a.fps
   );
+  return largest[0] ?? null;
 }
 
 export function useVideoFormats(deviceName: string | null): UseVideoFormatsResult {

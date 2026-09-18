@@ -113,6 +113,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                   <button
                     key={mode.value}
                     className={pixyHid.trackingMode === mode.value ? "is-selected" : ""}
+                    data-tone={mode.value === "privacy" ? "warn" : undefined}
                     disabled={disabled}
                     onClick={() => setControlMode(mode.value)}
                   >

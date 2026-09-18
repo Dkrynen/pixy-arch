@@ -60,12 +60,14 @@ export function ControlDeck({
             />
           ))}
         </div>
+        <div className="deck-pair">
+          <VirtualCamPanel virtualCam={virtualCam} />
+          <FirmwarePanel firmware={firmware} />
+        </div>
       </div>
       <aside className="operator-side">
         <SignalPanel isLoading={controls.isLoading} />
         <SmartPixyPanel pixyHid={pixyHid} audio={audio} privacySafety={privacySafety} />
-        <VirtualCamPanel virtualCam={virtualCam} />
-        <FirmwarePanel firmware={firmware} />
       </aside>
     </div>
   );

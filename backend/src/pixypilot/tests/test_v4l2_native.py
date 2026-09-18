@@ -15,6 +15,7 @@ from pixypilot.domains.v4l2.native import (
     V4L2_QUERYCTRL_SIZE,
     V4L2_QUERYMENU_SIZE,
     V4L2_STREAMPARM_SIZE,
+    _FMT_UNION_OFFSET,
     build_format_buffer,
     build_streamparm_buffer,
     fourcc,
@@ -48,7 +49,8 @@ def test_format_buffer_sets_capture_type_size_and_fourcc() -> None:
 
     assert len(buffer) == V4L2_FORMAT_SIZE
     assert struct.unpack_from("=I", buffer, 0)[0] == V4L2_BUF_TYPE_VIDEO_CAPTURE
-    width, height, pixel_format = struct.unpack_from("=III", buffer, 4)
+    # fmt.pix sits at the union's alignment offset (8 on 64-bit, 4 on 32-bit)
+    width, height, pixel_format = struct.unpack_from("=III", buffer, _FMT_UNION_OFFSET)
     assert (width, height, pixel_format) == (1920, 1080, fourcc("MJPG"))
 
 
