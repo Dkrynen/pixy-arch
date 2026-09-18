@@ -1,4 +1,6 @@
+import asyncio
 import os
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -68,7 +70,7 @@ from pixypilot.domains.video.models import (
     VideoStreamStopResult,
     VideoStreamSettings,
 )
-from pixypilot.domains.video.service import VideoService, get_video_service
+from pixypilot.domains.video.service import FRAME_BOUNDARY, VideoService, get_video_service
 
 router = APIRouter()
 
@@ -289,6 +291,23 @@ async def _loopback_substitute(
     return status.sink_path, settings
 
 
+# How long a preview waits for the virtual-cam relay's first frame before
+# reporting the feed as unavailable instead of hanging silently.
+RELAY_FIRST_FRAME_TIMEOUT_S = 5.0
+
+
+async def _relay_stream(first: bytes, frames: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    yield FRAME_BOUNDARY + first + b"\r\n"
+    async for frame in frames:
+        yield FRAME_BOUNDARY + frame + b"\r\n"
+
+
+async def _prefixed_stream(first: bytes, chunks: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    yield first
+    async for chunk in chunks:
+        yield chunk
+
+
 @router.get("/devices/{device_name}/stream")
 async def stream_video(
     device_name: str,
@@ -318,10 +337,36 @@ async def stream_video(
 
     device_path, substitute = await _loopback_substitute(device_path, virtualcam_service)
     if substitute is not None:
+        # The feeder tees frames to an in-process relay — preview subscribes
+        # there so the single-reader loopback stays free for OBS & friends.
+        relay = virtualcam_service.preview_frames()
+        if relay is not None:
+            try:
+                first = await asyncio.wait_for(relay.__anext__(), timeout=RELAY_FIRST_FRAME_TIMEOUT_S)
+            except (TimeoutError, StopAsyncIteration) as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail="virtual camera is running but not producing frames",
+                ) from exc
+            return StreamingResponse(
+                _relay_stream(first, relay),
+                media_type="multipart/x-mixed-replace; boundary=frame",
+                headers={"Cache-Control": "no-store"},
+            )
         settings = substitute
 
+    # First-frame commit: pull one chunk before answering so a dead/busy
+    # camera reports 503 instead of a 200 that streams zero bytes forever.
+    stream = video_service.mjpeg_stream(device_path, settings)
+    try:
+        first_chunk = await asyncio.wait_for(stream.__anext__(), timeout=RELAY_FIRST_FRAME_TIMEOUT_S)
+    except (TimeoutError, StopAsyncIteration) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="camera is not producing frames (device busy or unreadable)",
+        ) from exc
     return StreamingResponse(
-        video_service.mjpeg_stream(device_path, settings),
+        _prefixed_stream(first_chunk, stream),
         media_type="multipart/x-mixed-replace; boundary=frame",
         headers={"Cache-Control": "no-store"},
     )
@@ -362,6 +407,16 @@ async def start_recording(
         device_path = v4l2_service.device_path_from_name(device_name)
         device_path, substitute = await _loopback_substitute(device_path, virtualcam_service)
         await video_service.stop_streams(device_path)
+        if substitute is not None:
+            # Record from the feeder's frame relay so the loopback's single
+            # reader slot stays free for OBS & friends. Negotiated settings
+            # carry the real fps for container timestamps.
+            frame_source = virtualcam_service.preview_frames()
+            if frame_source is not None:
+                relay_settings = VideoRecordingRequest(**substitute.model_dump())
+                return await video_service.start_recording(
+                    device_name, device_path, relay_settings, frame_source=frame_source
+                )
         settings = (
             VideoRecordingRequest(**substitute.model_dump()) if substitute is not None else request
         )
@@ -839,11 +894,9 @@ async def virtualcam_status(
 async def virtualcam_start(
     request: VirtualCamStartRequest,
     service: VirtualCamService = Depends(get_virtualcam_service),
-    video_service: VideoService = Depends(get_video_service),
 ) -> VirtualCamActionResult:
-    # The Pixy is single-consumer: free the capture node from any preview
-    # stream before handing it to the loopback pipeline.
-    await video_service.stop_streams(None)
+    # The Pixy is single-consumer: the service frees preview streams itself
+    # once the start is actually committed (inside the lifecycle lock).
     result = await service.start(request)
     if not result.ok:
         raise HTTPException(status_code=409, detail=result.reason)

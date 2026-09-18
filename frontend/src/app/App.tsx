@@ -19,10 +19,14 @@ export function App() {
   const devices = useDevices();
   const controls = useControls(devices.selectedDeviceName);
   const videoFormats = useVideoFormats(devices.selectedDeviceName);
-  const videoCapture = useVideoCapture(devices.selectedDeviceName, videoFormats.selectedFormat);
+  const virtualCam = useVirtualCam();
+  const videoCapture = useVideoCapture(devices.selectedDeviceName, videoFormats.selectedFormat, {
+    // Under the relay, recording reads the shared frame tap — no need to
+    // drop the preview while a recording runs.
+    keepPreviewDuringRecording: virtualCam.status?.running === true,
+  });
   const pixyHid = usePixyHid();
   const audio = useAudio();
-  const virtualCam = useVirtualCam();
   const automation = useAutomation();
   const firmware = useFirmware();
   const privacySafety = usePrivacySafety(pixyHid, audio);

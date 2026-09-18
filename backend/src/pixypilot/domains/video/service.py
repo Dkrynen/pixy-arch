@@ -22,6 +22,15 @@ FRAME_BOUNDARY = b"--frame\r\nContent-Type: image/jpeg\r\nCache-Control: no-stor
 # backpressured consumer: the client is gone, so the camera must be released.
 STREAM_STALE_AFTER_S = 8.0
 STREAM_REAPER_INTERVAL_S = 2.0
+# How long a relay-fed recording waits for the tap's first frame before
+# failing instead of writing a header-only .mkv forever.
+RELAY_FIRST_FRAME_TIMEOUT_S = 5.0
+
+
+async def _prepend_frame(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    yield first
+    async for frame in rest:
+        yield frame
 
 
 class VideoService:
@@ -35,6 +44,7 @@ class VideoService:
         self._stream_progress: dict[object, float] = {}
         self._reaper_task: asyncio.Task[None] | None = None
         self._stream_lock = asyncio.Lock()
+        self._recording_feed_task: asyncio.Task[None] | None = None
 
     async def mjpeg_stream(self, device_path: str, settings: VideoStreamSettings) -> AsyncIterator[bytes]:
         if settings.pixel_format.upper() == "MJPG":
@@ -86,23 +96,44 @@ class VideoService:
         device_name: str,
         device_path: str,
         settings: VideoStreamSettings,
+        frame_source: AsyncIterator[bytes] | None = None,
     ) -> VideoRecordingStatus:
         await self._reap_finished_recording()
         if self._recording_process is not None:
             raise ValueError("A recording is already running")
+
+        first_frame: bytes | None = None
+        if frame_source is not None:
+            # Fail fast when the relay tap is dead — otherwise the recorder
+            # reports "recording" while producing a header-only file forever.
+            try:
+                first_frame = await asyncio.wait_for(
+                    frame_source.__anext__(), timeout=RELAY_FIRST_FRAME_TIMEOUT_S
+                )
+            except (TimeoutError, StopAsyncIteration) as exc:
+                raise ValueError("virtual camera is not producing frames") from exc
+            frame_source = _prepend_frame(first_frame, frame_source)
 
         self.recordings_dir.mkdir(parents=True, exist_ok=True)
         started_at = datetime.now(UTC)
         output_path = self.recordings_dir / (
             f"pixypilot-{_slugify_device_name(device_name)}-{started_at.strftime('%Y%m%d-%H%M%S')}.mkv"
         )
-        command = build_record_command(device_path, settings, output_path)
+        # Relay-fed recording copies native MJPEG frames from the virtual-cam
+        # tap — it never opens the loopback, whose single-reader slot stays
+        # free for external consumers like OBS.
+        command = (
+            build_relay_record_command(output_path, settings.fps)
+            if frame_source is not None
+            else build_record_command(device_path, settings, output_path)
+        )
         stderr_log = tempfile.NamedTemporaryFile(
             mode="wb", prefix="pixypilot-record-", suffix=".log", delete=False
         )
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
+                stdin=asyncio.subprocess.PIPE if frame_source is not None else None,
                 stdout=subprocess.DEVNULL,
                 stderr=stderr_log,
             )
@@ -121,18 +152,13 @@ class VideoService:
             )
             raise ValueError(reason) from exc
         stderr_log.close()
-
-        await asyncio.sleep(0.5)
-        if process.returncode is not None:
-            reason = _read_stderr_tail(stderr_log.name)
-            _remove_quietly(stderr_log.name)
-            self._recording_status = VideoRecordingStatus(
-                recording=False,
-                device_name=device_name,
-                reason=f"ffmpeg exited immediately: {reason}" if reason else "ffmpeg exited immediately",
+        if frame_source is not None:
+            self._recording_feed_task = asyncio.get_running_loop().create_task(
+                self._feed_recorder(process, frame_source)
             )
-            raise ValueError(self._recording_status.reason)
-
+        # Register before the spawn watch: a concurrent start must see the
+        # process (or both survive and one leaks untracked), and stop() must
+        # be able to kill it during the watch window.
         self._recording_process = process
         self._recording_stderr_path = stderr_log.name
         self._recording_status = VideoRecordingStatus(
@@ -141,16 +167,70 @@ class VideoService:
             path=str(output_path),
             started_at=started_at.isoformat(),
         )
+
+        await asyncio.sleep(0.5)
+        if process.returncode is not None:
+            await self._stop_recording_feed()
+            if self._recording_process is process:
+                self._recording_process = None
+            if self._recording_stderr_path == stderr_log.name:
+                self._recording_stderr_path = None
+            reason = _read_stderr_tail(stderr_log.name)
+            _remove_quietly(stderr_log.name)
+            self._recording_status = VideoRecordingStatus(
+                recording=False,
+                device_name=device_name,
+                reason=f"ffmpeg exited immediately: {reason}" if reason else "ffmpeg exited immediately",
+            )
+            raise ValueError(self._recording_status.reason)
         return self._recording_status
 
+    async def _feed_recorder(
+        self, process: asyncio.subprocess.Process, source: AsyncIterator[bytes]
+    ) -> None:
+        stdin = process.stdin
+        try:
+            if stdin is None:
+                return
+            async for frame in source:
+                stdin.write(frame)
+                await stdin.drain()
+        except asyncio.CancelledError:
+            raise
+        except (BrokenPipeError, ConnectionResetError):
+            # ffmpeg exited mid-record; the reap path reports the reason.
+            pass
+        finally:
+            if stdin is not None:
+                try:
+                    stdin.close()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+    async def _stop_recording_feed(self) -> None:
+        task = self._recording_feed_task
+        self._recording_feed_task = None
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
     async def stop_recording(self) -> VideoRecordingStatus:
-        if self._recording_process is None:
+        process = self._recording_process
+        if process is None:
             self._recording_status = VideoRecordingStatus(recording=False, reason="No recording is running")
             return self._recording_status
 
-        await _stop_process(self._recording_process)
+        # A relay-fed recorder finalizes on stdin EOF, so close the feed
+        # before escalating to signals — keeps the .mkv cleanly muxed.
+        await self._stop_recording_feed()
+        await _stop_process(process)
         finished = self._recording_status.model_copy(update={"recording": False})
-        self._recording_process = None
+        if self._recording_process is process:
+            self._recording_process = None
         self._recording_status = finished
         self._discard_recording_log()
         return finished
@@ -160,13 +240,14 @@ class VideoService:
         return self._recording_status
 
     async def _reap_finished_recording(self) -> None:
-        if self._recording_process is None:
+        process = self._recording_process
+        if process is None or process.returncode is None:
             return
-        if self._recording_process.returncode is None:
-            return
-        await self._recording_process.wait()
-        exit_code = self._recording_process.returncode
-        self._recording_process = None
+        await self._stop_recording_feed()
+        await process.wait()
+        exit_code = process.returncode
+        if self._recording_process is process:
+            self._recording_process = None
         stderr_tail = _read_stderr_tail(self._recording_stderr_path) if self._recording_stderr_path else ""
         self._discard_recording_log()
         reason = f"Recording process exited (code {exit_code})"
@@ -364,6 +445,30 @@ def build_record_command(device_path: str, settings: VideoStreamSettings, output
     ]
 
 
+def build_relay_record_command(output_path: Path, fps: float = 30) -> list[str]:
+    # Frames arrive on stdin from the virtual-cam MJPEG tap — copy them
+    # verbatim, no device is opened at all. -framerate stamps the muxed
+    # frames at the real rate instead of the mjpeg demuxer's 25fps default.
+    return [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "mjpeg",
+        "-framerate",
+        _format_fps(fps),
+        "-i",
+        "pipe:0",
+        "-an",
+        "-c:v",
+        "copy",
+        "-f",
+        "matroska",
+        str(output_path),
+    ]
+
+
 def build_input_args(device_path: str, settings: VideoStreamSettings) -> list[str]:
     fps = 10_000_000 / settings.frame_interval_100ns if settings.frame_interval_100ns else settings.fps
     return [
@@ -395,6 +500,58 @@ def _format_fps(fps: float) -> str:
     return f"{fps:.3f}".rstrip("0").rstrip(".")
 
 
+def _jpeg_frame_end(data: bytes, start: int) -> int:
+    """Offset just past the EOI of the JPEG whose SOI sits at `start`, or -1
+    when the frame is incomplete/corrupt.
+
+    Marker walk: length-delimited segments (APPn, COM, DQT, …) are skipped
+    wholesale, so a nested thumbnail JPEG (FFD8…FFD9 inside APP1) can never
+    truncate the outer frame — the naive byte-scan did cut there. After SOS,
+    entropy-coded data is scanned for the next real marker; FF bytes there
+    are stuffed as FF00 and RSTn markers are legal.
+    """
+    n = len(data)
+    i = start + 2
+    while i + 1 < n:
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        marker = data[i + 1]
+        if marker == 0x00:
+            i += 2
+            continue
+        if marker == 0xFF:
+            i += 1  # fill byte before a marker
+            continue
+        if marker == 0xD9:
+            return i + 2
+        if marker == 0xD8 or marker == 0x01 or 0xD0 <= marker <= 0xD7:
+            i += 2  # standalone marker (SOI/TEM/RSTn), no length field
+            continue
+        if i + 4 > n:
+            return -1  # segment length not buffered yet
+        seglen = (data[i + 2] << 8) | data[i + 3]
+        if seglen < 2:
+            return -1  # corrupt stream — don't loop forever
+        i += 2 + seglen
+        if marker == 0xDA:
+            # Entropy data until the next non-stuffed marker.
+            while i + 1 < n:
+                if data[i] == 0xFF and data[i + 1] != 0x00:
+                    if 0xD0 <= data[i + 1] <= 0xD7:
+                        i += 2
+                        continue
+                    break
+                i += 1
+    return -1
+
+
+# Cap for the buffered-not-yet-framed window: a corrupt stream that never
+# terminates a frame must not grow memory without bound. 1080p MJPEG frames
+# are ~150KB; even 4K stays under ~2MB.
+_JPEG_BUFFER_CAP = 8 * 1024 * 1024
+
+
 async def _jpeg_frames(stdout: asyncio.StreamReader) -> AsyncIterator[bytes]:
     buffer = b""
     while True:
@@ -404,16 +561,17 @@ async def _jpeg_frames(stdout: asyncio.StreamReader) -> AsyncIterator[bytes]:
         buffer += chunk
         while True:
             start = buffer.find(b"\xff\xd8")
-            end = buffer.find(b"\xff\xd9", start + 2 if start >= 0 else 0)
             if start < 0:
                 buffer = buffer[-1:]
                 break
+            end = _jpeg_frame_end(buffer, start)
             if end < 0:
                 buffer = buffer[start:]
                 break
-            frame = buffer[start : end + 2]
-            buffer = buffer[end + 2 :]
-            yield frame
+            yield buffer[start:end]
+            buffer = buffer[end:]
+        if len(buffer) > _JPEG_BUFFER_CAP:
+            buffer = buffer[-1:]
 
 
 async def _stop_process(process: asyncio.subprocess.Process) -> None:
@@ -421,11 +579,23 @@ async def _stop_process(process: asyncio.subprocess.Process) -> None:
         await process.wait()
         return
     process.terminate()
+    # Shield the waits: when this runs inside a finally during task
+    # cancellation (client disconnected mid-stream), an unshielded wait is
+    # cancelled before the kill escalation — leaving a SIGTERM'd process
+    # blocked on a full pipe alive forever, holding the camera node.
+    # kill() is synchronous, so once we reach the timeout path it always
+    # lands even under repeated cancellation.
     try:
-        await asyncio.wait_for(process.wait(), timeout=3)
-    except asyncio.TimeoutError:
+        await asyncio.wait_for(asyncio.shield(process.wait()), timeout=3)
+        return
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        pass
+    if process.returncode is None:
         process.kill()
-        await process.wait()
+    try:
+        await asyncio.wait_for(asyncio.shield(process.wait()), timeout=3)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        pass
 
 
 def _read_stderr_tail(path: str | None, max_bytes: int = 4000) -> str:

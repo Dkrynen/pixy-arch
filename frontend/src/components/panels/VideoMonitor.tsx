@@ -33,9 +33,10 @@ type Props = {
   videoFormats: UseVideoFormatsResult;
   videoCapture: UseVideoCaptureResult;
   pixyHid: UsePixyHidResult;
+  virtualCamRunning?: boolean;
 };
 
-export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }: Props) {
+export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, virtualCamRunning }: Props) {
   const selectedFormat = videoFormats.selectedFormat;
   const canUseVideo = Boolean(deviceName && selectedFormat);
   const isRecording = videoCapture.status?.recording === true;
@@ -49,6 +50,11 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
   const frameRef = useRef<HTMLDivElement | null>(null);
   const retryCountRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
+  // Set when a streamUrl change came from our own auto-retry so the reset
+  // effect preserves the retry counter — without it every retry resets the
+  // count to 0 and the "unavailable" state is unreachable.
+  const retryingRef = useRef(false);
+  const [streamDims, setStreamDims] = useState<{ width: number; height: number } | null>(null);
   const canClickFocus =
     Boolean(videoCapture.streamUrl && selectedFormat) &&
     !isRecording &&
@@ -65,8 +71,13 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
       ? { x: (focusMeteringPoint.x / 127) * 100, y: (focusMeteringPoint.y / 127) * 100 }
       : null);
 
+  // Relay frames arrive at the feeder's native dims, not the requested
+  // format — naturalWidth/Height is the truth for click mapping + aspect.
+  const imageDims = streamDims ??
+    (selectedFormat ? { width: selectedFormat.width, height: selectedFormat.height } : null);
+
   const handleFocusClick = async (event: PointerEvent<HTMLDivElement>) => {
-    if (!canClickFocus || !selectedFormat) {
+    if (!canClickFocus || !imageDims) {
       return;
     }
 
@@ -74,7 +85,7 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
     const mapClick = fillFrame ? focusPointFromCoverClick : focusPointFromContainClick;
     const point = mapClick(
       { width: rect.width, height: rect.height },
-      { width: selectedFormat.width, height: selectedFormat.height },
+      imageDims,
       { x: event.clientX - rect.left, y: event.clientY - rect.top }
     );
     if (!point) {
@@ -99,17 +110,22 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
 
   const toggleFullscreen = () => {
     if (document.fullscreenElement === frameRef.current) {
-      void document.exitFullscreen();
+      void document.exitFullscreen().catch(() => undefined);
     } else {
-      void frameRef.current?.requestFullscreen();
+      void frameRef.current?.requestFullscreen().catch(() => undefined);
     }
   };
 
-  // Reset stream/focus bookkeeping whenever a new stream URL is issued.
+  // Reset stream/focus bookkeeping whenever a new stream URL is issued —
+  // except auto-retry URL bumps, which must keep the retry counter alive.
   useEffect(() => {
-    retryCountRef.current = 0;
+    if (!retryingRef.current) {
+      retryCountRef.current = 0;
+    }
+    retryingRef.current = false;
     setStreamReady(false);
     setStreamFailed(false);
+    setStreamDims(null);
     setFocusTarget(null);
     if (reconnectTimerRef.current !== null) {
       window.clearTimeout(reconnectTimerRef.current);
@@ -117,15 +133,27 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
     }
   }, [videoCapture.streamUrl]);
 
-  // A recording claims the camera exclusively: drop the preview stream instead
-  // of hammering a busy device with reconnects (covers recordings started
-  // elsewhere too — our own startRecording already disables the preview).
+  // A direct recording claims the camera exclusively: drop the preview stream
+  // instead of hammering a busy device with reconnects. Under the virtual-cam
+  // relay the recorder reads the shared frame tap, so preview can stay live.
   const { previewEnabled, togglePreview } = videoCapture;
   useEffect(() => {
-    if (isRecording && previewEnabled) {
+    if (isRecording && previewEnabled && !virtualCamRunning) {
       togglePreview();
     }
-  }, [isRecording, previewEnabled, togglePreview]);
+  }, [isRecording, previewEnabled, virtualCamRunning, togglePreview]);
+
+  // The stream endpoint switches between the relay tap and a direct device
+  // read when the virtual cam starts/stops — reload the preview so a
+  // cleanly-ended relay stream never freezes on its last frame.
+  const prevVirtualCamRef = useRef(virtualCamRunning);
+  useEffect(() => {
+    const prev = prevVirtualCamRef.current;
+    prevVirtualCamRef.current = virtualCamRunning;
+    if (prev !== virtualCamRunning && previewEnabled) {
+      videoCapture.restartPreview();
+    }
+  }, [virtualCamRunning, previewEnabled, videoCapture]);
 
   // Forget the local click marker once focus metering leaves selected-area mode.
   useEffect(() => {
@@ -165,14 +193,19 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
     const delay = Math.min(STREAM_RETRY_BASE_MS * retryCountRef.current, 3000);
     reconnectTimerRef.current = window.setTimeout(() => {
       reconnectTimerRef.current = null;
+      retryingRef.current = true;
       videoCapture.restartPreview();
     }, delay);
   };
 
-  const handleStreamLoad = () => {
+  const handleStreamLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
     retryCountRef.current = 0;
     setStreamReady(true);
     setStreamFailed(false);
+    const img = event.currentTarget;
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      setStreamDims({ width: img.naturalWidth, height: img.naturalHeight });
+    }
     if (reconnectTimerRef.current !== null) {
       window.clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
@@ -252,8 +285,8 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
         ref={frameRef}
         className={`video-frame ${fillFrame ? "fit-cover" : ""} ${canClickFocus ? "can-click-focus" : ""} ${isPrivacy ? "is-privacy" : ""} ${streamFailed ? "stream-failed" : ""}`}
         style={
-          selectedFormat && !isFullscreen
-            ? { aspectRatio: `${selectedFormat.width} / ${selectedFormat.height}` }
+          imageDims && !isFullscreen
+            ? { aspectRatio: `${imageDims.width} / ${imageDims.height}` }
             : undefined
         }
         onPointerUp={(event) => void handleFocusClick(event)}
@@ -342,7 +375,9 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
               {isRecording
                 ? `Writing ${videoCapture.status?.path ?? "recording"}`
                 : canUseVideo
-                  ? "Show starts the stream and claims the camera"
+                  ? virtualCamRunning
+                    ? "Show starts the stream"
+                    : "Show starts the stream and claims the camera"
                   : "Connect a camera to enable live preview"}
             </span>
           </div>
@@ -359,14 +394,20 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid }
         </span>
         <strong>{isRecording ? `Recording ${recordingElapsed}` : videoCapture.previewEnabled ? "Previewing" : "Idle"}</strong>
       </div>
-      <div className={`device-ownership-note ${videoCapture.previewEnabled || isRecording ? "is-locked" : ""}`}>
+      <div className={`device-ownership-note ${(videoCapture.previewEnabled || isRecording) && !virtualCamRunning ? "is-locked" : ""}`}>
         <Unplug size={14} />
         <span>
           {isRecording
-            ? "Recording owns the camera. Stop recording before opening it in another app."
+            ? virtualCamRunning
+              ? "Recording from the camera tap — other apps can keep using the virtual camera."
+              : "Recording owns the camera. Stop recording before opening it in another app."
             : videoCapture.previewEnabled
-              ? "Preview owns the camera. Hide preview before opening it in another app."
-              : "Preview is stopped. The camera is available to other apps."}
+              ? virtualCamRunning
+                ? "Preview shares the camera tap — other apps can attach to the virtual camera."
+                : "Preview owns the camera. Hide preview before opening it in another app."
+              : virtualCamRunning
+                ? "The virtual camera is streaming — other apps can attach to it."
+                : "Preview is stopped. The camera is available to other apps."}
         </span>
       </div>
       {!isRecording && videoCapture.status?.path && (

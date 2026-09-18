@@ -58,17 +58,15 @@ export function useVirtualCam(): UseVirtualCamResult {
     void refresh();
   }, [refresh]);
 
-  // While streaming, poll so the runtime details (consumers, negotiated
-  // format) stay fresh and a crashed ffmpeg is noticed without a reload.
+  // Poll unconditionally: keeps consumers/format fresh while running, notices
+  // a crashed ffmpeg, and — just as important — adopts pipelines started by
+  // another client (or the autostart task) instead of reporting stale "off".
   useEffect(() => {
-    if (!status?.running) {
-      return;
-    }
     const timer = window.setInterval(() => {
       void refresh();
     }, RUNNING_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [status?.running, refresh]);
+  }, [refresh]);
 
   const start = useCallback(
     async (request: VirtualCamStartOptions) => {

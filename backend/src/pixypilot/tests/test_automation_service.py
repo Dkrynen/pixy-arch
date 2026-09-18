@@ -222,6 +222,57 @@ async def test_status_exposes_mic_unmuted_and_settings(monkeypatch) -> None:
     assert status.last_action == "call-start:tracking+unmute"
 
 
+def test_scan_all_holders_merges_sink_consumers(monkeypatch, tmp_path) -> None:
+    # Call apps read the loopback sink, not the physical node — a consumer on
+    # the sink's rdev must count as a call holder or automation never fires.
+    import unittest.mock as mock
+
+    service = AutomationService()
+    service.settings = AutomationSettings(video_device="/dev/video0")
+    scanned: list[int] = []
+
+    def fake_scan(rdev, exclude, self_pid=None, sink_arg=None):
+        scanned.append(rdev)
+        return ["obs"] if rdev == 222 else []
+
+    def fake_stat(path, *args, **kwargs):
+        result = mock.Mock()
+        result.st_rdev = 111 if str(path) == "/dev/video0" else 222
+        return result
+
+    monkeypatch.setattr(automation_module, "_scan_holders", fake_scan)
+    monkeypatch.setattr(automation_module.os, "stat", fake_stat)
+
+    holders = service._scan_all_holders(Path("/dev/video10"), b"/dev/video10")
+
+    assert holders == ["obs"]
+    assert scanned == [111, 222]
+
+
+def test_scan_all_holders_empty_when_sink_matches_source(monkeypatch) -> None:
+    import unittest.mock as mock
+
+    service = AutomationService()
+    service.settings = AutomationSettings(video_device="/dev/video0")
+    scanned: list[int] = []
+
+    monkeypatch.setattr(
+        automation_module,
+        "_scan_holders",
+        lambda rdev, exclude, self_pid=None, sink_arg=None: scanned.append(rdev) or [],
+    )
+    monkeypatch.setattr(
+        automation_module.os,
+        "stat",
+        lambda path, *a, **k: mock.Mock(st_rdev=111),
+    )
+
+    holders = service._scan_all_holders(Path("/dev/video0"), b"/dev/video0")
+
+    assert holders == []
+    assert scanned == [111]
+
+
 def test_is_sink_writer_detects_ffmpeg_loopback_feeder(tmp_path) -> None:
     from pixypilot.domains.automation.service import _is_sink_writer
 

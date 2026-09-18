@@ -42,7 +42,7 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
   const running = status?.running ?? false;
   const autostart = privacySafety.settings?.virtualcam.autostart ?? true;
   const toggleAutostart = (enabled: boolean) => {
-    void privacySafety.saveSettings({ virtualcam: { autostart: enabled } });
+    void privacySafety.saveSettings({ virtualcam: { autostart: enabled } }).catch(() => undefined);
   };
   const [pipeline, setPipeline] = useState<"transform" | "whiteboard">("transform");
   const [transform, setTransform] = useState<VirtualCamTransform>({ mirror: false, rotate: 0, zoom: 1.0 });

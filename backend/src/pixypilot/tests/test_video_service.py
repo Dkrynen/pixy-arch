@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pixypilot.domains.video.service as video_service_module
@@ -213,6 +214,62 @@ async def test_start_recording_reports_early_ffmpeg_exit(monkeypatch, tmp_path) 
 
     assert service._recording_status.recording is False
     assert service._recording_status.reason is not None
+    assert service._recording_process is None
+
+
+def test_jpeg_frame_end_skips_embedded_thumbnail() -> None:
+    # APP1 carries a nested JPEG thumbnail (FFD8..FFD9) — the naive byte scan
+    # truncated the outer frame at the thumbnail's EOI.
+    from pixypilot.domains.video.service import _jpeg_frame_end
+
+    thumb = b"\xff\xd8THUMB\xff\xd9"
+    app1_data = b"Exif\x00\x00" + thumb
+    app1 = b"\xff\xe1" + (len(app1_data) + 2).to_bytes(2, "big") + app1_data
+    sos_header = b"\xff\xda" + (8).to_bytes(2, "big") + b"SCANH!"
+    frame = b"\xff\xd8" + app1 + sos_header + b"entropy\xff\xd9"
+
+    assert _jpeg_frame_end(frame, 0) == len(frame)
+
+
+def test_jpeg_frame_end_incomplete_returns_minus_one() -> None:
+    from pixypilot.domains.video.service import _jpeg_frame_end
+
+    assert _jpeg_frame_end(b"\xff\xd8\xff\xe1\x00\x10partial", 0) == -1
+    assert _jpeg_frame_end(b"\xff\xd8", 0) == -1
+
+
+def test_jpeg_frame_end_handles_progressive_multi_scan() -> None:
+    # Progressive JPEGs repeat SOS+entropy; RSTn markers inside entropy are
+    # legal and must not terminate the frame early.
+    from pixypilot.domains.video.service import _jpeg_frame_end
+
+    sos = b"\xff\xda" + (8).to_bytes(2, "big") + b"SCANH!"
+    entropy = b"data\xff\x00stuffed\xff\xd0restart"
+    frame = b"\xff\xd8" + sos + entropy + sos + entropy + b"\xff\xd9"
+
+    assert _jpeg_frame_end(frame, 0) == len(frame)
+
+
+async def test_start_recording_fails_fast_when_relay_is_empty(monkeypatch, tmp_path) -> None:
+    async def empty_source():
+        await asyncio.sleep(60)
+        yield b""  # pragma: no cover — never reached
+
+    monkeypatch.setattr(video_service_module, "RELAY_FIRST_FRAME_TIMEOUT_S", 0.01)
+    service = VideoService(tmp_path)
+
+    try:
+        await service.start_recording(
+            "video0",
+            "/dev/video0",
+            VideoStreamSettings(pixel_format="MJPG", width=1280, height=720, fps=30),
+            frame_source=empty_source(),
+        )
+    except ValueError as exc:
+        assert "not producing frames" in str(exc)
+    else:
+        raise AssertionError("recording should fail when the relay yields nothing")
+
     assert service._recording_process is None
 
 

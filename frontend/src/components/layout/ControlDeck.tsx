@@ -48,6 +48,7 @@ export function ControlDeck({
           videoFormats={videoFormats}
           videoCapture={videoCapture}
           pixyHid={pixyHid}
+          virtualCamRunning={virtualCam.status?.running === true}
         />
         <div className="control-grid">
           {controls.groups.filter((group) => group.id !== "smart").map((group) => (

@@ -208,6 +208,35 @@ describe("useVideoCapture", () => {
     expect(result.current.streamUrl).toContain("/api/devices/video0/stream?");
   });
 
+  it("keeps the preview live during relay-fed recording", async () => {
+    mockedStartVideoRecording.mockResolvedValue({
+      recording: true,
+      device_name: "video0",
+      path: "/recordings/take.mkv",
+      started_at: "2026-09-18T10:00:00Z",
+      reason: null
+    });
+
+    const { result } = renderHook(() =>
+      useVideoCapture("video0", format, { keepPreviewDuringRecording: true })
+    );
+    await waitFor(() => expect(result.current.status?.recording).toBe(false));
+
+    act(() => {
+      result.current.togglePreview();
+    });
+    expect(result.current.previewEnabled).toBe(true);
+
+    await act(async () => {
+      await result.current.startRecording();
+    });
+
+    // Under the virtual-cam relay the recorder shares the frame tap — the
+    // preview must not be force-dropped.
+    expect(result.current.previewEnabled).toBe(true);
+    expect(result.current.streamUrl).toContain("/api/devices/video0/stream?");
+  });
+
   it("does not resume a preview that was off before recording", async () => {
     mockedStartVideoRecording.mockResolvedValue({
       recording: true,

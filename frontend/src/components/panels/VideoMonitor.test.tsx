@@ -130,6 +130,61 @@ describe("VideoMonitor", () => {
     expect(screen.getByText("Preview owns the camera. Hide preview before opening it in another app.")).toBeInTheDocument();
   });
 
+  it("notes the preview shares the tap when the virtual camera owns the device", () => {
+    render(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture({ previewEnabled: true })}
+        pixyHid={pixyHid()}
+        virtualCamRunning={true}
+      />
+    );
+
+    expect(screen.getByText(/other apps can attach to the virtual camera/)).toBeInTheDocument();
+  });
+
+  it("notes the virtual camera is still streaming when preview is stopped", () => {
+    render(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture({ previewEnabled: false, streamUrl: null })}
+        pixyHid={pixyHid()}
+        virtualCamRunning={true}
+      />
+    );
+
+    expect(screen.getByText("The virtual camera is streaming — other apps can attach to it.")).toBeInTheDocument();
+  });
+
+  it("restarts the preview when the virtual camera state flips", () => {
+    const restartPreview = vi.fn();
+    const capture = videoCapture({ restartPreview });
+    const { rerender } = render(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={capture}
+        pixyHid={pixyHid()}
+        virtualCamRunning={false}
+      />
+    );
+    expect(restartPreview).not.toHaveBeenCalled();
+
+    rerender(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={capture}
+        pixyHid={pixyHid()}
+        virtualCamRunning={true}
+      />
+    );
+
+    expect(restartPreview).toHaveBeenCalledOnce();
+  });
+
   it("shows that other apps can use the camera when preview is stopped", () => {
     render(
       <VideoMonitor

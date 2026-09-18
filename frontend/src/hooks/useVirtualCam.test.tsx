@@ -147,7 +147,9 @@ describe("useVirtualCam", () => {
     }
   });
 
-  it("does not poll when the pipeline is stopped", async () => {
+  it("keeps polling while stopped so external starts are adopted", async () => {
+    // A pipeline started by another client (or the autostart task) must show
+    // up without a reload — the poll runs unconditionally.
     vi.useFakeTimers();
     try {
       const { result } = renderHook(() => useVirtualCam());
@@ -160,7 +162,7 @@ describe("useVirtualCam", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(9000);
       });
-      expect(mockedFetchStatus).not.toHaveBeenCalled();
+      expect(mockedFetchStatus).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }

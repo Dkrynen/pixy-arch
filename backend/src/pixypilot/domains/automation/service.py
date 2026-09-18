@@ -27,7 +27,15 @@ def _is_sink_writer(pid_dir: Path, sink_arg: bytes | None) -> bool:
         args = [part for part in (pid_dir / "cmdline").read_bytes().split(b"\0") if part]
     except OSError:
         return False
-    return bool(args) and args[0].endswith(b"ffmpeg") and args[-1] == sink_arg
+    if not args or not args[0].endswith(b"ffmpeg") or sink_arg not in args[1:]:
+        return False
+    # The feeder's cmdline may append outputs after the sink (the preview
+    # tap's pipe), so the sink is matched anywhere — but a consumer reads
+    # the sink via `-i sink`, which makes it a real holder, not the writer.
+    for index, part in enumerate(args):
+        if part == b"-i" and index + 1 < len(args) and args[index + 1] == sink_arg:
+            return False
+    return True
 
 
 def _scan_holders(
@@ -120,22 +128,13 @@ class AutomationService:
         sink = _find_loopback_device()
         sink_arg = str(sink).encode() if sink else None
         while True:
-            try:
-                rdev = os.stat(self.settings.video_device).st_rdev
-                if sink_arg is None:
-                    # The loopback can appear after the watcher starts (module
-                    # loaded late); retry until it shows so its writer is
-                    # never mistaken for a call.
-                    sink = _find_loopback_device()
-                    sink_arg = str(sink).encode() if sink else None
-                self._holders = _scan_holders(
-                    rdev,
-                    set(self.settings.exclude_processes),
-                    self_pid=os.getpid(),
-                    sink_arg=sink_arg,
-                )
-            except OSError:
-                self._holders = []
+            if sink_arg is None:
+                # The loopback can appear after the watcher starts (module
+                # loaded late); retry until it shows so its writer is
+                # never mistaken for a call.
+                sink = _find_loopback_device()
+                sink_arg = str(sink).encode() if sink else None
+            self._holders = self._scan_all_holders(sink, sink_arg)
             in_use = bool(self._holders)
             now = time.monotonic()
             if in_use:
@@ -151,6 +150,34 @@ class AutomationService:
                     idle_since = None
                     await self._on_close()
             await asyncio.sleep(self.settings.poll_seconds)
+
+    def _scan_all_holders(self, sink: Path | None, sink_arg: bytes | None) -> list[str]:
+        try:
+            rdev = os.stat(self.settings.video_device).st_rdev
+            holders = set(
+                _scan_holders(
+                    rdev,
+                    set(self.settings.exclude_processes),
+                    self_pid=os.getpid(),
+                    sink_arg=sink_arg,
+                )
+            )
+            if sink is not None:
+                # Call apps consume the virtual camera, not the physical
+                # node the feeder owns — sink readers are call holders too.
+                sink_rdev = os.stat(sink).st_rdev
+                if sink_rdev != rdev:
+                    holders.update(
+                        _scan_holders(
+                            sink_rdev,
+                            set(self.settings.exclude_processes),
+                            self_pid=os.getpid(),
+                            sink_arg=sink_arg,
+                        )
+                    )
+            return sorted(holders)
+        except OSError:
+            return []
 
     async def _hid(self) -> PixyHidService | None:
         service = get_pixy_hid_service()

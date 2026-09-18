@@ -1,11 +1,15 @@
 import asyncio
+import contextlib
 import fcntl
 import os
 import signal
 import struct
 import tempfile
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from pixypilot.domains.video.service import _jpeg_frames, get_video_service
 
 from pixypilot.config import virtualcam_device, virtualcam_label
 from pixypilot.domains.virtualcam.models import (
@@ -62,6 +66,16 @@ def build_ffmpeg_command(
     request: VirtualCamStartRequest, source_path: str, sink_path: str
 ) -> list[str]:
     filters = build_filter_chain(request.transform, request.output_width, request.output_height)
+    # Second output tees native-resolution MJPEG frames to stdout for the
+    # in-app preview/record relay, so the loopback sink stays exclusively
+    # available to external consumers (OBS & friends) — a v4l2loopback
+    # device only supports one streaming reader at a time.
+    # MJPEG input is copied verbatim (no encode cost); raw input is encoded.
+    tap_codec = (
+        ["-c:v", "copy"]
+        if request.input_format.lower() in ("mjpeg", "mjpg")
+        else ["-c:v", "mjpeg", "-q:v", "2"]
+    )
     return [
         "ffmpeg",
         "-hide_banner",
@@ -77,6 +91,8 @@ def build_ffmpeg_command(
         f"{request.input_fps:g}",
         "-i",
         source_path,
+        "-map",
+        "0:v",
         "-vf",
         filters,
         "-f",
@@ -84,13 +100,21 @@ def build_ffmpeg_command(
         "-pix_fmt",
         "yuyv422",
         sink_path,
+        "-map",
+        "0:v",
+        *tap_codec,
+        "-f",
+        "mjpeg",
+        "pipe:1",
     ]
 
 
 def _find_loopback_device() -> Path | None:
     override = virtualcam_device()
     if override is not None and override.exists():
-        return override
+        # Canonicalize so a configured alias (/dev/v4l/by-path/*) matches
+        # both the feeder's argv and /proc fd readlinks in holder scans.
+        return override.resolve()
     label = virtualcam_label().lower()
     if not VIDEO4LINUX_SYSFS.is_dir():
         return None
@@ -153,16 +177,24 @@ def _read_sink_format(sink: Path) -> tuple[int, int, str, float | None] | None:
         os.close(fd)
 
 
+# PipeWire/WirePlumber hold camera nodes open for portal enumeration — they
+# are not consumers in the "an app is using the virtual camera" sense.
+_ENUMERATOR_COMMS = {"pipewire", "wireplumber"}
+
+
 def _scan_sink_holders(sink: Path, proc_root: Path = Path("/proc")) -> tuple[int, int | None]:
     """Count non-writer processes holding the sink open; find the ffmpeg writer.
 
     Returns (consumers, writer_pid). "Consumers" are processes other than the
     writer holding the node open — readers like OBS, browsers or ffprobe. An
-    ffmpeg whose last argument is the sink path is the writer (both PixyPilot
+    ffmpeg whose arguments write to the sink is the writer (both PixyPilot
     pipelines and foreign producers match that shape); anything else with the
     node open counts as a consumer.
     """
-    sink_arg = str(sink).encode()
+    # realpath: /proc fd links resolve to the canonical node, while the sink
+    # may have been configured via an alias (/dev/v4l/by-path/*).
+    sink_arg = os.path.realpath(sink).encode()
+    sink_real = os.path.realpath(sink)
     consumers = 0
     writer_pid: int | None = None
     self_pid = os.getpid()
@@ -173,10 +205,15 @@ def _scan_sink_holders(sink: Path, proc_root: Path = Path("/proc")) -> tuple[int
         if pid == self_pid:
             continue
         try:
+            if (entry / "comm").read_text(encoding="utf-8").strip() in _ENUMERATOR_COMMS:
+                continue
+        except OSError:
+            pass
+        try:
             holds_sink = False
             for fd in (entry / "fd").iterdir():
                 try:
-                    if os.readlink(fd) == str(sink):
+                    if os.readlink(fd) in (str(sink), sink_real):
                         holds_sink = True
                         break
                 except OSError:
@@ -190,11 +227,28 @@ def _scan_sink_holders(sink: Path, proc_root: Path = Path("/proc")) -> tuple[int
         except OSError:
             parts = []
         args = [part for part in parts if part]
-        if args and args[0].endswith(b"ffmpeg") and args[-1] == sink_arg:
+        if _is_ffmpeg_sink_writer(args, sink_arg):
             writer_pid = pid
         else:
             consumers += 1
     return consumers, writer_pid
+
+
+def _is_ffmpeg_sink_writer(args: list[bytes], sink_arg: bytes) -> bool:
+    """True when an ffmpeg cmdline outputs to the sink rather than reading it.
+
+    The writer's cmdline may end in extra outputs after the sink (the preview
+    tap's ``pipe:1``), so the sink is matched anywhere in argv — but a
+    consumer reads the sink via ``-i sink``, which disqualifies it.
+    """
+    if not args or not args[0].endswith(b"ffmpeg"):
+        return False
+    if sink_arg not in args[1:]:
+        return False
+    for index, part in enumerate(args):
+        if part == b"-i" and index + 1 < len(args) and args[index + 1] == sink_arg:
+            return False
+    return True
 
 
 def _inspect_sink(sink: Path) -> tuple[int, int | None, tuple[int, int, str, float | None] | None]:
@@ -252,6 +306,45 @@ async def _kill_pid(pid: int) -> None:
         pass
 
 
+class FrameRelay:
+    """Latest-frame fanout from the feeder's MJPEG tap to N subscribers.
+
+    Preview and recording clients subscribe to frames() instead of opening
+    the loopback device — a v4l2loopback sink only supports one streaming
+    reader, and that slot belongs to external apps (OBS & friends).
+    Subscribers always get the newest frame; slow consumers skip, they
+    never build a backlog.
+    """
+
+    def __init__(self) -> None:
+        self._cond = asyncio.Condition()
+        self._frame: bytes | None = None
+        self._seq = 0
+        self._closed = False
+
+    async def publish(self, frame: bytes) -> None:
+        async with self._cond:
+            self._frame = frame
+            self._seq += 1
+            self._cond.notify_all()
+
+    async def close(self) -> None:
+        async with self._cond:
+            self._closed = True
+            self._cond.notify_all()
+
+    async def frames(self) -> AsyncIterator[bytes]:
+        last = 0
+        while True:
+            async with self._cond:
+                await self._cond.wait_for(lambda: self._closed or self._seq != last)
+                if self._closed:
+                    return
+                frame, last = self._frame, self._seq
+            if frame is not None:
+                yield frame
+
+
 class VirtualCamService:
     # The Pixy is a single-consumer device: while a pipeline owns the
     # capture node, consumers (including the PixyPilot preview) must read
@@ -269,6 +362,12 @@ class VirtualCamService:
         self._output_height: int | None = None
         self._stderr_path: str | None = None
         self._last_error: str | None = None
+        self._relay: FrameRelay | None = None
+        self._relay_task: asyncio.Task[None] | None = None
+        # Serializes start/stop: two concurrent starts could both pass the
+        # _running() check, and the loser's ffmpeg would leak holding the
+        # source device with no tracked pid to reap.
+        self._lifecycle_lock = asyncio.Lock()
 
     def _running(self) -> bool:
         ffmpeg_running = self._process is not None and self._process.returncode is None
@@ -300,6 +399,52 @@ class VirtualCamService:
         self._output_height = request.output_height
         self._last_error = None
 
+    async def _drain_preview_tap(
+        self, process: asyncio.subprocess.Process, relay: FrameRelay
+    ) -> None:
+        try:
+            if process.stdout is not None:
+                async for frame in _jpeg_frames(process.stdout):
+                    await relay.publish(frame)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # A dead drain leaves ffmpeg blocked on a full pipe, which freezes
+            # the virtual camera for every consumer — kill it and report the
+            # failure rather than letting a live-but-stuck pipeline look fine.
+            self._last_error = f"preview tap failed: {exc}"
+            if process.returncode is None:
+                process.kill()
+        finally:
+            await relay.close()
+
+    async def _clear_relay(self) -> None:
+        task = self._relay_task
+        self._relay_task = None
+        relay = self._relay
+        self._relay = None
+        if relay is not None:
+            await relay.close()
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    def preview_frames(self) -> AsyncIterator[bytes] | None:
+        """Subscribe to feeder frames when the transform pipeline owns the source.
+
+        Returns None when the virtual cam is not running under our control
+        (stopped, whiteboard pipeline, or a foreign writer owns the sink) —
+        callers then fall back to reading the sink device directly.
+        """
+        if (
+            self._process is None
+            or self._process.returncode is not None
+            or self._relay is None
+        ):
+            return None
+        return self._relay.frames()
+
     async def status(self) -> VirtualCamStatus:
         sink = _find_loopback_device()
         # Reap a dead transform ffmpeg before reporting "not running" — the
@@ -310,8 +455,14 @@ class VirtualCamService:
             _remove_quietly(self._stderr_path)
             self._stderr_path = None
             self._process = None
+            await self._clear_relay()
             detail = f": {tail}" if tail else ""
-            self._last_error = f"ffmpeg exited (code {exit_code}){detail}"
+            exit_msg = f"ffmpeg exited (code {exit_code}){detail}"
+            # Keep a more precise earlier error (e.g. the drain's "preview
+            # tap failed") ahead of the generic exit report.
+            self._last_error = (
+                f"{self._last_error}; {exit_msg}" if self._last_error else exit_msg
+            )
         if self._pump is not None and not self._pump.running:
             self._pump = None
             if self._last_error is None:
@@ -364,6 +515,10 @@ class VirtualCamService:
         return status
 
     async def start(self, request: VirtualCamStartRequest) -> VirtualCamActionResult:
+        async with self._lifecycle_lock:
+            return await self._start_locked(request)
+
+    async def _start_locked(self, request: VirtualCamStartRequest) -> VirtualCamActionResult:
         if self._orphan_pid is not None:
             # A status() poll may have recorded a writer that died since;
             # refuse only on a live one, not on a stale pid.
@@ -377,6 +532,7 @@ class VirtualCamService:
         sink = Path(request.sink_device) if request.sink_device else _find_loopback_device()
         if sink is None or not sink.exists():
             return self._fail("no v4l2loopback device found; load the module first")
+        sink = Path(os.path.realpath(sink))
         _, orphan = await asyncio.to_thread(_scan_sink_holders, sink)
         if orphan is not None:
             await _kill_pid(orphan)
@@ -389,6 +545,10 @@ class VirtualCamService:
             request.output_height,
         ) == (request.input_width, request.input_height):
             request.output_width, request.output_height = request.input_height, request.input_width
+        # Free the capture node from any preview stream only now that the
+        # start is committed — doing it earlier kills previews on doomed
+        # starts (already-running 409, missing source/sink).
+        await get_video_service().stop_streams(None)
         if request.pipeline == "whiteboard":
             return await self._start_whiteboard(request, source, sink)
         return await self._start_transform(request, source, sink)
@@ -404,7 +564,9 @@ class VirtualCamService:
             process = await asyncio.create_subprocess_exec(
                 *command,
                 stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.DEVNULL,
+                # stdout carries the MJPEG preview tap — it must be drained
+                # continuously or ffmpeg stalls and the virtual cam freezes.
+                stdout=asyncio.subprocess.PIPE,
                 stderr=stderr_log,
             )
         except OSError as exc:
@@ -412,21 +574,34 @@ class VirtualCamService:
             _remove_quietly(stderr_log.name)
             return self._fail(_spawn_error_reason(exc), sink)
         stderr_log.close()
+        # Register before the spawn watch: during those 0.5s a status() poll
+        # must not mistake our own feeder for a foreign orphan, stop() must
+        # be able to kill it, and stream requests must see the relay rather
+        # than racing the feeder for the physical device.
+        self._process = process
+        self._stderr_path = stderr_log.name
+        self._relay = FrameRelay()
+        self._relay_task = asyncio.get_running_loop().create_task(
+            self._drain_preview_tap(process, self._relay)
+        )
+        self._activate(request, source, sink)
         await asyncio.sleep(SPAWN_WATCH_S)
         if process.returncode is not None:
             tail = _read_stderr_tail(stderr_log.name)
+            if self._process is process:
+                self._process = None
+            if self._stderr_path == stderr_log.name:
+                self._stderr_path = None
+            await self._clear_relay()
             _remove_quietly(stderr_log.name)
             return self._fail(
                 f"ffmpeg exited immediately: {tail}" if tail else "ffmpeg exited immediately",
                 sink,
             )
-        self._process = process
-        self._stderr_path = stderr_log.name
-        self._activate(request, source, sink)
         return VirtualCamActionResult(
             ok=True,
             running=True,
-            pid=self._process.pid,
+            pid=process.pid,
             sink_path=str(sink),
             source_device=str(source),
         )
@@ -488,6 +663,11 @@ class VirtualCamService:
         )
 
     async def stop(self) -> VirtualCamActionResult:
+        async with self._lifecycle_lock:
+            return await self._stop_locked()
+
+    async def _stop_locked(self) -> VirtualCamActionResult:
+        await self._clear_relay()
         pump = self._pump
         self._pump = None
         if pump is not None:
@@ -502,7 +682,8 @@ class VirtualCamService:
                 await asyncio.wait_for(process.wait(), timeout=3.0)
             except TimeoutError:
                 process.kill()
-                await process.wait()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
         orphan = self._orphan_pid
         self._orphan_pid = None
         if orphan is not None:

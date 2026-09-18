@@ -24,8 +24,10 @@ export type UseVideoCaptureResult = {
 
 export function useVideoCapture(
   deviceName: string | null,
-  selectedFormat: VideoFormatOption | null
+  selectedFormat: VideoFormatOption | null,
+  options?: { keepPreviewDuringRecording?: boolean }
 ): UseVideoCaptureResult {
+  const keepPreviewDuringRecording = options?.keepPreviewDuringRecording === true;
   const [previewEnabled, setPreviewEnabled] = useState(false);
   const [streamToken, setStreamToken] = useState(0);
   const [status, setStatus] = useState<VideoRecordingStatus | null>(null);
@@ -110,10 +112,12 @@ export function useVideoCapture(
     try {
       const nextStatus = await startVideoRecording(deviceName, selectedFormat);
       setStatus(nextStatus);
-      if (nextStatus.recording) {
-        // The recording ffmpeg owns the camera exclusively, so the preview
+      if (nextStatus.recording && !keepPreviewDuringRecording) {
+        // A direct recording owns the camera exclusively, so the preview
         // stream was already stopped server-side. Mirror that locally instead
-        // of letting the img element retry against a busy device.
+        // of letting the img element retry against a busy device. Under the
+        // virtual-cam relay the recorder reads the shared frame tap — no
+        // exclusivity, so the preview stays live.
         setPreviewEnabled((enabled) => {
           resumePreviewAfterRecordingRef.current = enabled;
           return false;
@@ -124,7 +128,7 @@ export function useVideoCapture(
     } finally {
       setPending(false);
     }
-  }, [deviceName, selectedFormat]);
+  }, [deviceName, selectedFormat, keepPreviewDuringRecording]);
 
   const stopRecording = useCallback(async () => {
     setPending(true);

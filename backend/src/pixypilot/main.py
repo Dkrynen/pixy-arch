@@ -12,6 +12,7 @@ from pixypilot.config import cors_origins, frontend_dist_path, start_in_privacy,
 from pixypilot.domains.audio.service import get_audio_service
 from pixypilot.domains.automation.service import get_automation_service
 from pixypilot.domains.pixy_hid.service import get_pixy_hid_service
+from pixypilot.domains.video.service import get_video_service
 from pixypilot.domains.virtualcam.models import VirtualCamStartRequest
 from pixypilot.domains.virtualcam.service import get_virtualcam_service
 
@@ -73,6 +74,12 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_autostart_virtualcam())
     yield
     await automation.stop()
+    # Stop recordings/streams before the vcam: a device-fed recorder ffmpeg
+    # would otherwise outlive the process holding the camera node, blocking
+    # the next boot's autostart.
+    video = get_video_service()
+    await video.stop_recording()
+    await video.stop_streams()
     await get_virtualcam_service().stop()
 
 
