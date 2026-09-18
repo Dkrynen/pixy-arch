@@ -356,11 +356,16 @@ async def start_recording(
     request: VideoRecordingRequest,
     v4l2_service: V4L2Service = Depends(get_v4l2_service),
     video_service: VideoService = Depends(get_video_service),
+    virtualcam_service: VirtualCamService = Depends(get_virtualcam_service),
 ) -> VideoRecordingStatus:
     try:
         device_path = v4l2_service.device_path_from_name(device_name)
+        device_path, substitute = await _loopback_substitute(device_path, virtualcam_service)
         await video_service.stop_streams(device_path)
-        return await video_service.start_recording(device_name, device_path, request)
+        settings = (
+            VideoRecordingRequest(**substitute.model_dump()) if substitute is not None else request
+        )
+        return await video_service.start_recording(device_name, device_path, settings)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -349,11 +349,14 @@ def build_stream_command(device_path: str, settings: VideoStreamSettings) -> lis
 
 
 def build_record_command(device_path: str, settings: VideoStreamSettings, output_path: Path) -> list[str]:
+    # MJPEG sources copy frame-for-frame into the container; raw formats
+    # (YUYV, from the virtual-cam loopback) would otherwise mux as rawvideo
+    # at ~120 MB/s, so they are encoded to MJPEG instead.
+    codec_args = ["-c:v", "copy"] if settings.pixel_format.upper() == "MJPG" else ["-c:v", "mjpeg", "-q:v", "3"]
     return [
         *build_input_args(device_path, settings),
         "-an",
-        "-c:v",
-        "copy",
+        *codec_args,
         "-f",
         "matroska",
         str(output_path),

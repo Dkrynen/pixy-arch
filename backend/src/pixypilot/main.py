@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -8,25 +9,37 @@ from fastapi.staticfiles import StaticFiles
 
 from pixypilot.api.routes import router
 from pixypilot.config import cors_origins, frontend_dist_path, start_in_privacy, virtualcam_autostart
+from pixypilot.domains.audio.service import get_audio_service
 from pixypilot.domains.automation.service import get_automation_service
 from pixypilot.domains.pixy_hid.service import get_pixy_hid_service
 from pixypilot.domains.virtualcam.models import VirtualCamStartRequest
 from pixypilot.domains.virtualcam.service import get_virtualcam_service
 
+_LOG = logging.getLogger("pixypilot.startup")
+
 
 async def _apply_start_in_privacy() -> None:
     # The hidraw node may not be writable yet at boot (udev rule still being
-    # applied); retry briefly rather than skipping the safety step.
+    # applied); retry rather than skipping the safety step. Privacy covers the
+    # lens; the mic is muted too — entering privacy never depends on a browser
+    # being open. Failures are logged, not fatal: any exception type retries.
     service = get_pixy_hid_service()
-    for _ in range(20):
+    audio = get_audio_service()
+    for attempt in range(45):
         try:
             status = await service.status()
             if status.writable:
                 await service.set_tracking("privacy")
+                try:
+                    await audio.set_mute(True)
+                except Exception:
+                    _LOG.exception("privacy start: mic mute failed")
+                _LOG.info("privacy start: tracking=privacy applied (attempt %d)", attempt + 1)
                 return
-        except (FileNotFoundError, PermissionError, OSError):
-            pass
+        except Exception:
+            _LOG.warning("privacy start: attempt %d failed", attempt + 1, exc_info=True)
         await asyncio.sleep(1.0)
+    _LOG.error("privacy start: gave up after 45s — HID device never writable")
 
 
 async def _autostart_virtualcam() -> None:
@@ -34,17 +47,19 @@ async def _autostart_virtualcam() -> None:
     # before claiming the camera — and don't keep retrying forever: a missing
     # device at boot is reported by /api/virtualcam/status anyway.
     service = get_virtualcam_service()
-    for _ in range(10):
+    for attempt in range(30):
         try:
             status = await service.status()
             if status.running:
                 return
             if status.available:
                 await service.start(VirtualCamStartRequest())
+                _LOG.info("virtualcam autostart: pipeline started (attempt %d)", attempt + 1)
                 return
-        except (OSError, ValueError):
-            pass
+        except Exception:
+            _LOG.warning("virtualcam autostart: attempt %d failed", attempt + 1, exc_info=True)
         await asyncio.sleep(1.0)
+    _LOG.error("virtualcam autostart: gave up after 30s — loopback never available")
 
 
 @asynccontextmanager

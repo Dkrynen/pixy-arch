@@ -48,5 +48,29 @@ Video Capture caps, video0 stream request returns the loopback's
 1920x1080 MJPEG, settings PATCH round-trips to yaml.
 Gates: 169 backend + 228 frontend tests, tsc/build clean, smoke green.
 
+Taste-test fixes (post-vcam regressions found on live verification):
+
+- Recording now uses the same `_loopback_substitute` as preview — while the
+  vcam feeder owns /dev/video0, record requests target the loopback instead
+  of failing with "Device or resource busy".
+- `build_record_command` is codec-aware: MJPG input copies frames; raw
+  formats (YUYV from the loopback) encode to MJPEG q3 — a rawvideo copy
+  would mux ~120 MB/s into the .mkv.
+- Automation no longer treats our own ffmpeg loopback writer as a "call":
+  `_is_sink_writer` matches ffmpeg whose final argv is the configured sink
+  and excludes it from holder scans; the watch loop refreshes the sink path
+  when the loopback appears post-startup. Previously the autostart feeder
+  kept `camera_in_use` true forever → tracking on + mic unmuted at boot.
+- `_apply_start_in_privacy` hardened: 45s retry window (udev hidraw
+  permissions can lag past the old 20s), any exception retries instead of
+  killing the task silently, and `pixypilot.startup` logging makes the
+  outcome visible in journalctl. Confirmed via hid-trace: tracking:privacy
+  written at boot+1s, gimbal parked tilt −90° (motor_pos floats), mic
+  muted. Note: the device readback settles to tracking_mode "off" once
+  privacy engages — the lens-cover state is the real indicator.
+
+Gates after fixes: 171 backend + 228 frontend tests, tsc/build clean,
+smoke green, live re-verified end-to-end.
+
 Deferred (optional): structured PTZ-position endpoint; vector-motion server
 watchdog; audio-mode readback coverage in panel tests.

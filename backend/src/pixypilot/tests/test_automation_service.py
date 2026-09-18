@@ -220,3 +220,30 @@ async def test_status_exposes_mic_unmuted_and_settings(monkeypatch) -> None:
     assert status.mic_unmuted is True
     assert status.settings.unmute_mic is True
     assert status.last_action == "call-start:tracking+unmute"
+
+
+def test_is_sink_writer_detects_ffmpeg_loopback_feeder(tmp_path) -> None:
+    from pixypilot.domains.automation.service import _is_sink_writer
+
+    pid_dir = tmp_path / "1234"
+    pid_dir.mkdir()
+    sink = b"/dev/video10"
+
+    # ffmpeg producer writing to the sink is our own feeder, not a call
+    (pid_dir / "cmdline").write_bytes(b"/usr/bin/ffmpeg\0-f\0v4l2\0-i\0/dev/video0\0/dev/video10\0")
+    assert _is_sink_writer(pid_dir, sink) is True
+
+    # same shape via PATH-resolved name
+    (pid_dir / "cmdline").write_bytes(b"ffmpeg\0-i\0/dev/video0\0/dev/video10\0")
+    assert _is_sink_writer(pid_dir, sink) is True
+
+    # a non-ffmpeg process holding the camera still counts as a call
+    (pid_dir / "cmdline").write_bytes(b"obs\0--scene\0/dev/video0\0")
+    assert _is_sink_writer(pid_dir, sink) is False
+
+    # ffmpeg reading a different device is a consumer, not our feeder
+    (pid_dir / "cmdline").write_bytes(b"ffmpeg\0-i\0/dev/video10\0out.mp4\0")
+    assert _is_sink_writer(pid_dir, sink) is False
+
+    # no sink configured → nothing is excluded
+    assert _is_sink_writer(pid_dir, None) is False

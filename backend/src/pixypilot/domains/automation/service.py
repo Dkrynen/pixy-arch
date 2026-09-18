@@ -10,6 +10,7 @@ from pixypilot.domains.audio.service import get_audio_service
 from pixypilot.domains.automation.models import AutomationSettings, AutomationStatus
 from pixypilot.domains.pixy_hid.models import TrackingMode
 from pixypilot.domains.pixy_hid.service import PixyHidService, _hex_to_bytes, _parse_tracking_response, get_pixy_hid_service
+from pixypilot.domains.virtualcam.service import _find_loopback_device
 
 # Always treated as non-call holders regardless of the configured exclude list:
 # PipeWire/WirePlumber keep the camera node open for device enumeration, and
@@ -17,7 +18,24 @@ from pixypilot.domains.pixy_hid.service import PixyHidService, _hex_to_bytes, _p
 _ENUMERATOR_COMMS = {"pipewire", "wireplumber"}
 
 
-def _scan_holders(rdev: int, exclude: set[str], self_pid: int | None = None) -> list[str]:
+def _is_sink_writer(pid_dir: Path, sink_arg: bytes | None) -> bool:
+    """True when the process is an ffmpeg writing to the loopback sink — our
+    own virtual-cam feeder holds the camera exclusively but is not a call."""
+    if sink_arg is None:
+        return False
+    try:
+        args = [part for part in (pid_dir / "cmdline").read_bytes().split(b"\0") if part]
+    except OSError:
+        return False
+    return bool(args) and args[0].endswith(b"ffmpeg") and args[-1] == sink_arg
+
+
+def _scan_holders(
+    rdev: int,
+    exclude: set[str],
+    self_pid: int | None = None,
+    sink_arg: bytes | None = None,
+) -> list[str]:
     holders: set[str] = set()
     ignored = exclude | _ENUMERATOR_COMMS
     for pid_dir in Path("/proc").iterdir():
@@ -41,7 +59,8 @@ def _scan_holders(rdev: int, exclude: set[str], self_pid: int | None = None) -> 
             except OSError:
                 continue
             if fd_stat.st_rdev == rdev and stat.S_ISCHR(fd_stat.st_mode):
-                holders.add(comm)
+                if not _is_sink_writer(pid_dir, sink_arg):
+                    holders.add(comm)
                 break
     return sorted(holders)
 
@@ -98,11 +117,22 @@ class AutomationService:
 
     async def _watch_loop(self) -> None:
         idle_since: float | None = None
+        sink = _find_loopback_device()
+        sink_arg = str(sink).encode() if sink else None
         while True:
             try:
                 rdev = os.stat(self.settings.video_device).st_rdev
+                if sink_arg is None:
+                    # The loopback can appear after the watcher starts (module
+                    # loaded late); retry until it shows so its writer is
+                    # never mistaken for a call.
+                    sink = _find_loopback_device()
+                    sink_arg = str(sink).encode() if sink else None
                 self._holders = _scan_holders(
-                    rdev, set(self.settings.exclude_processes), self_pid=os.getpid()
+                    rdev,
+                    set(self.settings.exclude_processes),
+                    self_pid=os.getpid(),
+                    sink_arg=sink_arg,
                 )
             except OSError:
                 self._holders = []

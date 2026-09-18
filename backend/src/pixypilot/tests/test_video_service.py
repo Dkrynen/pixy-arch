@@ -147,6 +147,16 @@ def test_record_command_writes_matroska_file_without_reencoding() -> None:
     assert command[-1] == "/tmp/pixypilot-test.mkv"
 
 
+def test_record_command_encodes_raw_formats_to_mjpeg() -> None:
+    command = build_record_command(
+        "/dev/video10",
+        VideoStreamSettings(pixel_format="YUYV", width=1920, height=1080, fps=30),
+        Path("/tmp/pixypilot-test.mkv"),
+    )
+
+    assert command[-8:] == ["-an", "-c:v", "mjpeg", "-q:v", "3", "-f", "matroska", "/tmp/pixypilot-test.mkv"]
+
+
 async def test_stop_streams_terminates_registered_preview_processes(tmp_path) -> None:
     service = VideoService(tmp_path)
     process = FakeProcess()
