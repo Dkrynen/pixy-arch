@@ -74,3 +74,30 @@ smoke green, live re-verified end-to-end.
 
 Deferred (optional): structured PTZ-position endpoint; vector-motion server
 watchdog; audio-mode readback coverage in panel tests.
+
+Hardware-behavior + UX pass (user feedback):
+
+- Standard mode now unparks the gimbal: `set_tracking` to any non-privacy
+  mode calls `_unpark_gimbal_if_parked` — queries motor_pos_tilt, and when
+  parked below −80° sends a 12° relative up nudge (absolute moves are
+  ignored at the mechanical park deadband) then absolute (0°,0°).
+  Live-verified: tilt −90° → +0.06°.
+- Drag pad slowed for hardware safety: vector limit 30 → 12 with an eased
+  curve (fine ~1-4°/s nudges near center, ~12°/s at pad edge vs ~25°/s
+  before — measured live via motor telemetry).
+- Preview blur fixed: loopback path re-encodes YUYV→MJPEG at -q:v 2 (was
+  q5). ~73KB/frame at 1080p. Camera AF/focus hardware verified healthy —
+  blur was the transcode step only; OBS gets uncompressed YUYV regardless.
+- UI de-sloped to a Zed-like zinc palette: neutral surfaces, single muted
+  blue accent (accent-soft selected states instead of bright fills), teal
+  hardcodes remapped, gradients removed, tighter topbar/brand density.
+- Scroll sprawl fixed: Smart Pixy rail sections are now native
+  details/summary disclosures — Tracking & Follow open by default,
+  Privacy Timer / Orientation / Focus / Audio DSP / Locks & Imaging /
+  Power-On & Remote collapsed. Smoke script expands a section to exercise
+  it (and captures innerText before view-switch remounts re-collapse).
+- Mode segmented row stacks the label above buttons so
+  STANDARD/TRACKING/PRIVACY render untruncated.
+
+Gates: 172 backend + 229 frontend tests, tsc/build clean, smoke green
+(0 console errors), all fixes live-verified on the physical camera.

@@ -342,8 +342,9 @@ def build_stream_command(device_path: str, settings: VideoStreamSettings) -> lis
         "-an",
         "-f",
         "mjpeg",
+        # q2 is visually near-lossless; q5 read as blur on the loopback path.
         "-q:v",
-        "5",
+        "2",
         "pipe:1",
     ]
 

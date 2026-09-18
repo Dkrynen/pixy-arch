@@ -321,7 +321,38 @@ class PixyHidService:
             await self._write_reports(path, tracking_reports("off"), operation="tracking:off:privacy-exit")
             await asyncio.sleep(max(self.report_gap_seconds, 0.15))
         await self._write_reports(path, tracking_reports(mode), operation=f"tracking:{mode}")
+        if mode != "privacy":
+            await self._unpark_gimbal_if_parked(path)
         return PixyHidCommandResult(ok=True, command="tracking", value=mode, path=path)
+
+    async def _unpark_gimbal_if_parked(self, path: str) -> None:
+        # Leaving privacy should bring the lens back up, but the gimbal parks
+        # at tilt -90 where absolute moves are ignored (mechanical deadband).
+        # A small relative nudge escapes the park position, then an absolute
+        # move centres the camera — without this, "Standard" mode leaves the
+        # camera staring at the desk.
+        tilt = await self._motor_position_deg(path, 0x02)
+        if tilt is None or tilt > -80.0:
+            return
+        await self._write_reports(path, ptz_relative_reports("up", 12.0), operation="ptz:relative:up:unpark")
+        await asyncio.sleep(max(self.report_gap_seconds, 0.6))
+        await self._write_reports(path, ptz_absolute_reports(0.0, 0.0), operation="ptz:absolute:unpark-center")
+
+    async def _motor_position_deg(self, path: str, axis: int) -> float | None:
+        try:
+            query = await self._query_raw_with_path(path, "motor_pos_tilt" if axis == 0x02 else "motor_pos_pan")
+        except OSError:
+            return None
+        response = _hex_to_bytes(query.response_hex)
+        if response is None or len(response) < 21 or response[0] != 0x09:
+            return None
+        import struct
+
+        try:
+            _target, current, _extra = struct.unpack("<fff", response[9:21])
+        except struct.error:
+            return None
+        return float(current)
 
     async def set_target_tracking(
         self,

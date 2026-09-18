@@ -27,7 +27,11 @@ await page.getByRole("heading", { name: "Exposure Control" }).waitFor({ state: "
 await page.getByRole("heading", { name: "Smart Pixy" }).waitFor({ state: "visible" });
 await page.getByText("Tracking & Follow").waitFor({ state: "visible" });
 await page.getByText("Gesture Control").waitFor({ state: "visible" });
+// Secondary sections ship collapsed; expanding one exercises the disclosure.
+await page.getByText("Orientation").click();
 await page.getByText("Auto Rotate").waitFor({ state: "visible" });
+// View switching remounts the deck and re-collapses sections, so capture now.
+const hasAutoRotate = await page.evaluate(() => document.body.innerText.includes("Auto Rotate"));
 await page.screenshot({ path: "/tmp/pixypilot-desktop.png", fullPage: false });
 
 // Diagnostics deck: exercised via the view switch, not visible by default.
@@ -53,7 +57,7 @@ const result = {
   hasSmartPixy: bodyText.includes("Smart Pixy"),
   hasTrackingFollow: bodyText.toLowerCase().includes("tracking & follow"),
   hasGestureControl: bodyText.includes("Gesture Control"),
-  hasAutoRotate: bodyText.includes("Auto Rotate"),
+  hasAutoRotate,
   // innerText reflects CSS text-transform; the panel renders as "FUTURE DECK".
   hasFutureDeck: diagnosticsText.toLowerCase().includes("future deck"),
   hasReadySignal: bodyText.includes("Ready"),

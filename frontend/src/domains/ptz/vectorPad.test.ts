@@ -11,22 +11,31 @@ describe("ptz vector pad geometry", () => {
   });
 
   it("maps right and up to positive HID vector values", () => {
+    // Corner drag saturates at the eased limit (12 * unit direction).
     expect(ptzVectorFromPadPoint({ width: 200, height: 200 }, { x: 200, y: 0 })).toEqual({
-      x: 21.2,
-      y: 21.2
+      x: 8.5,
+      y: 8.5
+    });
+  });
+
+  it("keeps inner-pad drags fine-grained via the easing curve", () => {
+    // Half-radius drag yields ~0.33x of the limit, not half — slow near center.
+    expect(ptzVectorFromPadPoint({ width: 200, height: 200 }, { x: 150, y: 100 })).toEqual({
+      x: 4,
+      y: 0
     });
   });
 
   it("clamps points outside the round pad to the vector limit", () => {
     expect(ptzVectorFromPadPoint({ width: 200, height: 200 }, { x: 400, y: 100 })).toEqual({
-      x: 30,
+      x: 12,
       y: 0
     });
   });
 
   it("converts a vector back to a percentage puck position", () => {
     expect(vectorPadPosition({ x: 15, y: -30 })).toEqual({
-      x: 75,
+      x: 100,
       y: 100
     });
   });

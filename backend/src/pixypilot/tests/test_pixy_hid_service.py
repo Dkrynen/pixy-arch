@@ -201,6 +201,17 @@ async def test_tracking_from_privacy_sends_standard_before_tracking(monkeypatch)
 
     async def query_raw_with_path(path: str, name: str):
         assert path == "/dev/hidraw14"
+        if name == "motor_pos_tilt":
+            # Tilt already centred: no unpark writes expected.
+            return PixyHidRawQueryResult(
+                name="motor_pos_tilt",
+                request_hex="09 63 01 01",
+                response_hex="09 63 01 01 00 09 00 09 02 00 00 00 00 00 00 00 00 00 00 00 00 00",
+                value_index=8,
+                raw_value=2,
+                raw_bits=[1],
+                path=path,
+            )
         assert name == "tracking_state"
         return PixyHidRawQueryResult(
             name="tracking_state",
@@ -231,6 +242,49 @@ async def test_tracking_from_privacy_sends_standard_before_tracking(monkeypatch)
     assert result.value == "tracking"
     assert [reports[0][8] for reports in writes] == [0x00, 0x01]
     assert sleeps == [0.15]
+
+
+@pytest.mark.asyncio
+async def test_privacy_exit_unparks_gimbal(monkeypatch) -> None:
+    # Gimbal parked at tilt -90: absolute moves are ignored there, so leaving
+    # privacy must send a relative nudge before centring.
+    service = PixyHidService(report_gap_seconds=0)
+    writes: list[tuple[str | None, list[bytes]]] = []
+    sleeps: list[float] = []
+
+    async def require_path():
+        return "/dev/hidraw14"
+
+    async def query_raw_with_path(path: str, name: str):
+        assert name == "motor_pos_tilt"
+        return PixyHidRawQueryResult(
+            name="motor_pos_tilt",
+            request_hex="09 63 01 01",
+            # axis 0x02, target -90.0, current -89.86 (parked)
+            response_hex="09 63 01 01 00 09 00 09 02 1a fe b3 c2 27 f0 b3 c2 00 00 00 00 00",
+            value_index=8,
+            raw_value=2,
+            raw_bits=[1],
+            path=path,
+        )
+
+    async def write_reports(path: str, reports: list[bytes], operation: str | None = None):
+        writes.append((operation, reports))
+
+    async def sleep(seconds: float):
+        sleeps.append(seconds)
+
+    service._require_writable_path = require_path
+    service._query_raw_with_path = query_raw_with_path
+    service._write_reports = write_reports
+    monkeypatch.setattr("pixypilot.domains.pixy_hid.service.asyncio.sleep", sleep)
+
+    result = await service.set_tracking("off")
+
+    assert result.ok is True
+    operations = [operation for operation, _ in writes]
+    assert operations == ["tracking:off", "ptz:relative:up:unpark", "ptz:absolute:unpark-center"]
+    assert sleeps == [0.6]
 
 
 @pytest.mark.asyncio

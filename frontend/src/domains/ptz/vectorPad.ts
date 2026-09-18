@@ -10,7 +10,11 @@ export type PadBox = {
   height: number;
 };
 
-const PTZ_VECTOR_LIMIT = 30;
+// Magnitude maps to gimbal velocity (~0.8°/s per unit at 60°/s motor speed):
+// 30 whipped the camera at ~25°/s. 12 caps edge-drag near ~10°/s, and the
+// easing curve keeps the inner pad for fine sub-degree nudges.
+const PTZ_VECTOR_LIMIT = 12;
+const PTZ_VECTOR_CURVE = 1.6;
 
 export function ptzVectorFromPadPoint(box: PadBox, point: PadPoint): PtzVector {
   const size = Math.min(box.width, box.height);
@@ -25,11 +29,15 @@ export function ptzVectorFromPadPoint(box: PadBox, point: PadPoint): PtzVector {
     y: center.y - point.y
   };
   const distance = Math.hypot(raw.x, raw.y);
-  const scale = distance > radius ? radius / distance : 1;
+  if (distance === 0) {
+    return { x: 0, y: 0 };
+  }
+
+  const magnitude = Math.pow(Math.min(distance, radius) / radius, PTZ_VECTOR_CURVE) * PTZ_VECTOR_LIMIT;
 
   return {
-    x: roundVector((raw.x * scale * PTZ_VECTOR_LIMIT) / radius),
-    y: roundVector((raw.y * scale * PTZ_VECTOR_LIMIT) / radius)
+    x: roundVector((raw.x / distance) * magnitude),
+    y: roundVector((raw.y / distance) * magnitude)
   };
 }
 

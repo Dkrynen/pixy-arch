@@ -440,7 +440,7 @@ describe("PtzControlPanel", () => {
     fireEvent.pointerMove(centerButton, { clientX: 100, clientY: 50, buttons: 1 });
     fireEvent.pointerUp(centerButton, { clientX: 100, clientY: 50 });
 
-    await waitFor(() => expect(sendPtzVector).toHaveBeenCalledWith({ x: 30, y: 0 }));
+    await waitFor(() => expect(sendPtzVector).toHaveBeenCalledWith({ x: 12, y: 0 }));
     await waitFor(() => expect(sendPtzVector).toHaveBeenCalledWith({ x: 0, y: 0, z: 0 }));
     expect(setValue).not.toHaveBeenCalled();
     expect(centerButton.querySelector(".ptz-vector-puck")).toBeNull();

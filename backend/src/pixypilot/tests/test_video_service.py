@@ -90,7 +90,7 @@ def test_uncompressed_stream_command_encodes_mjpeg_to_stdout() -> None:
         VideoStreamSettings(pixel_format="YUYV", width=640, height=480, fps=30),
     )
 
-    assert command[-6:] == ["-an", "-f", "mjpeg", "-q:v", "5", "pipe:1"]
+    assert command[-6:] == ["-an", "-f", "mjpeg", "-q:v", "2", "pipe:1"]
     assert "yuyv422" in command
 
 

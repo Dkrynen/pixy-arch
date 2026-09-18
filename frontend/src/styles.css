@@ -5,38 +5,38 @@
    ============================================================ */
 
 :root {
-  /* Surfaces */
-  --bg: #080b10;
-  --surface-1: #0e141b;
-  --surface-2: #141c25;
-  --surface-3: #1b2530;
-  --surface-inset: rgba(3, 6, 10, 0.42);
+  /* Surfaces — neutral zinc, no hue tint (Zed-style restraint) */
+  --bg: #0a0a0c;
+  --surface-1: #101014;
+  --surface-2: #17171d;
+  --surface-3: #1f1f27;
+  --surface-inset: rgba(0, 0, 0, 0.4);
 
-  /* Borders */
-  --border: rgba(148, 178, 190, 0.13);
-  --border-strong: rgba(148, 178, 190, 0.27);
+  /* Borders — neutral white alpha */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.15);
 
   /* Text */
-  --text-1: #e9f1f0;
-  --text-2: #96a8a9;
-  --text-3: #63767a;
+  --text-1: #ecebf0;
+  --text-2: #a0a0ab;
+  --text-3: #65656f;
 
-  /* Accent */
-  --accent: #2ee6c8;
-  --accent-ink: #032019;
-  --accent-soft: rgba(46, 230, 200, 0.12);
-  --accent-border: rgba(46, 230, 200, 0.38);
+  /* Accent — muted blue, the only chroma in the chrome */
+  --accent: #4a90e8;
+  --accent-ink: #071426;
+  --accent-soft: rgba(74, 144, 232, 0.13);
+  --accent-border: rgba(74, 144, 232, 0.4);
 
-  /* Semantic */
-  --ok: #46d98c;
-  --ok-soft: rgba(70, 217, 140, 0.1);
-  --ok-border: rgba(70, 217, 140, 0.3);
-  --warn: #f0b63f;
-  --warn-soft: rgba(240, 182, 63, 0.1);
-  --warn-border: rgba(240, 182, 63, 0.34);
-  --danger: #f7687f;
-  --danger-soft: rgba(247, 104, 127, 0.1);
-  --danger-border: rgba(247, 104, 127, 0.38);
+  /* Semantic — desaturated, state only */
+  --ok: #4fbf8b;
+  --ok-soft: rgba(79, 191, 139, 0.1);
+  --ok-border: rgba(79, 191, 139, 0.32);
+  --warn: #d9a648;
+  --warn-soft: rgba(217, 166, 72, 0.1);
+  --warn-border: rgba(217, 166, 72, 0.34);
+  --danger: #e06070;
+  --danger-soft: rgba(224, 96, 112, 0.1);
+  --danger-border: rgba(224, 96, 112, 0.38);
 
   /* Typography */
   --font-sans:
@@ -52,14 +52,14 @@
   --space-5: 20px;
   --space-6: 24px;
 
-  /* Radii */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  /* Radii — tighter, editorial */
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
 
-  /* Elevation */
-  --shadow-panel: 0 16px 40px rgba(0, 0, 0, 0.26);
-  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.34);
+  /* Elevation — practically invisible, borders do the work */
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-pop: 0 6px 20px rgba(0, 0, 0, 0.4);
 
   /* Motion */
   --dur-1: 120ms;
@@ -89,9 +89,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(1100px 460px at 50% -140px, rgba(46, 230, 200, 0.05), transparent 70%),
-    var(--bg);
+  background: var(--bg);
 }
 
 h1,
@@ -123,7 +121,7 @@ input:disabled {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(148, 178, 190, 0.26) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -134,7 +132,7 @@ input:disabled {
 *::-webkit-scrollbar-thumb {
   border: 2px solid var(--surface-1);
   border-radius: 8px;
-  background: rgba(148, 178, 190, 0.22);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 :focus-visible {
@@ -173,19 +171,19 @@ button:active:not(:disabled) {
 
 .topbar {
   position: sticky;
-  top: var(--space-3);
+  top: var(--space-2);
   z-index: 40;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
   max-width: 1560px;
-  min-height: 64px;
-  margin: 0 auto var(--space-4);
-  padding: var(--space-2) var(--space-4);
+  min-height: 52px;
+  margin: 0 auto var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: rgba(10, 15, 20, 0.82);
+  background: rgba(10, 10, 12, 0.85);
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -220,8 +218,8 @@ button:active:not(:disabled) {
 
 .brand-mark {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   flex: none;
   place-items: center;
   border: 1px solid var(--accent-border);
@@ -283,9 +281,9 @@ button:active:not(:disabled) {
 }
 
 .view-switch button.is-selected {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-  background: var(--accent);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
   font-weight: 800;
 }
 
@@ -339,9 +337,7 @@ button:active:not(:disabled) {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   color: var(--text-1);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015)),
-    var(--surface-2);
+  background: var(--surface-2);
 }
 
 .secondary-button:hover:not(:disabled),
@@ -511,9 +507,7 @@ button:active:not(:disabled) {
 .settings-summary-panel {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.024), rgba(255, 255, 255, 0) 42%),
-    var(--surface-1);
+  background: var(--surface-1);
   box-shadow: var(--shadow-panel);
 }
 
@@ -1217,7 +1211,7 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 50%;
   background: var(--accent);
   box-shadow:
-    0 0 0 3px rgba(46, 230, 200, 0.16),
+    0 0 0 3px rgba(74, 144, 232, 0.18),
     0 2px 5px rgba(0, 0, 0, 0.45);
   transition:
     transform var(--dur-1) var(--ease),
@@ -1252,7 +1246,7 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 50%;
   background: var(--accent);
   box-shadow:
-    0 0 0 3px rgba(46, 230, 200, 0.16),
+    0 0 0 3px rgba(74, 144, 232, 0.18),
     0 2px 5px rgba(0, 0, 0, 0.45);
   transition:
     transform var(--dur-1) var(--ease),
@@ -1377,17 +1371,17 @@ input[type="range"]:disabled {
 
 .segmented button.is-selected,
 .reference-segmented button.is-selected {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-  background: var(--accent);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
   font-weight: 800;
 }
 
 /* Privacy is the one semantic exception: amber = attention. */
 .segmented button.is-selected[data-tone="warn"] {
-  border-color: var(--warn);
-  color: #241a02;
-  background: var(--warn);
+  border-color: var(--warn-border);
+  color: var(--warn);
+  background: var(--warn-soft);
 }
 
 .segmented button:disabled,
@@ -1551,8 +1545,9 @@ input[type="range"]:disabled {
 }
 
 .preset-save-button:hover:not(:disabled) {
-  color: var(--accent-ink);
-  background: var(--accent);
+  color: var(--accent);
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
 }
 
 .preset-icon-button:disabled,
@@ -1665,11 +1660,11 @@ input[type="range"]:disabled {
   border: 1px solid var(--accent-border);
   border-radius: 50%;
   background:
-    repeating-radial-gradient(circle, rgba(46, 230, 200, 0.13) 0 1px, transparent 1px 30px),
-    radial-gradient(circle, rgba(46, 230, 200, 0.07), transparent 68%),
+    repeating-radial-gradient(circle, rgba(74, 144, 232, 0.13) 0 1px, transparent 1px 30px),
+    radial-gradient(circle, rgba(74, 144, 232, 0.07), transparent 68%),
     var(--surface-2);
   box-shadow:
-    inset 0 0 30px rgba(46, 230, 200, 0.07),
+    inset 0 0 30px rgba(74, 144, 232, 0.07),
     0 14px 34px rgba(0, 0, 0, 0.3);
 }
 
@@ -1704,9 +1699,9 @@ input[type="range"]:disabled {
 
 .ptz-direction:hover:not(:disabled),
 .ptz-center:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-  background: var(--accent);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .ptz-direction:disabled,
@@ -1772,7 +1767,7 @@ input[type="range"]:disabled {
   background: var(--accent);
   box-shadow:
     0 0 0 1px var(--accent-border),
-    0 0 16px rgba(46, 230, 200, 0.6);
+    0 0 16px rgba(74, 144, 232, 0.55);
   pointer-events: none;
   transform: translate(-50%, -50%);
 }
@@ -1904,9 +1899,9 @@ input[type="range"]:disabled {
 }
 
 .ptz-preset-slots button.is-selected {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-  background: var(--accent);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .ptz-footer {
@@ -1966,9 +1961,9 @@ input[type="range"]:disabled {
 }
 
 .ptz-speed-buttons button.is-selected {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-  background: var(--accent);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .ptz-home-button {
@@ -2019,6 +2014,37 @@ input[type="range"]:disabled {
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+/* details/summary collapse — native disclosure, content stays in DOM */
+details.smart-control > summary.smart-label {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+details.smart-control > summary.smart-label::-webkit-details-marker {
+  display: none;
+}
+
+details.smart-control > summary.smart-label .collapse-caret {
+  margin-left: auto;
+  color: var(--text-3);
+  transition: transform var(--dur-1) var(--ease);
+}
+
+details.smart-control[open] > summary.smart-label .collapse-caret {
+  transform: rotate(180deg);
+}
+
+details.smart-control:not([open]) {
+  gap: 0;
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+
+details.smart-control:not([open]) > summary.smart-label:hover {
+  color: var(--accent);
 }
 
 .smart-label > svg {
@@ -2136,6 +2162,12 @@ input[type="range"]:disabled {
   grid-template-columns: 88px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
+}
+
+/* Full-word mode labels don't fit beside the 88px label column. */
+.privacy-mode-row.mode-stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
 }
 
 .privacy-mode-row > span,

@@ -170,17 +170,18 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
       </div>
 
       <div className="smart-control-stack">
-        <div className="smart-control privacy-control">
-          <div className="smart-label">
+        <details className="smart-control privacy-control" open>
+          <summary className="smart-label">
             <ScanFace size={16} />
             <span>Tracking &amp; Follow</span>
-          </div>
+            <ChevronDown className="collapse-caret" size={14} />
+          </summary>
           <div className="privacy-control-body">
             <div className={`device-mode-readback state-${pixyHid.deviceTrackingState}`}>
               <span>Device reports</span>
               <strong>{deviceTrackingText}</strong>
             </div>
-            <div className="privacy-mode-row">
+            <div className="privacy-mode-row mode-stack">
               <span>Mode</span>
               <div className="segmented control-mode-command">
                 {controlModes.map((mode) => (
@@ -215,13 +216,14 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
               {privacyHelp}
             </small>
           </div>
-        </div>
+        </details>
 
-        <div className="smart-control privacy-control">
-          <div className="smart-label">
+        <details className="smart-control privacy-control">
+          <summary className="smart-label">
             <Shield size={16} />
             <span>Privacy Timer</span>
-          </div>
+            <ChevronDown className="collapse-caret" size={14} />
+          </summary>
           <div className="privacy-control-body">
             <div className="privacy-mode-row">
               <span>Auto-enter</span>
@@ -262,13 +264,14 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
               treat as experimental.
             </small>
           </div>
-        </div>
+        </details>
 
-        <div className="smart-control">
-          <div className="smart-label">
+        <details className="smart-control">
+          <summary className="smart-label">
             <FlipHorizontal2 size={16} />
             <span>Orientation</span>
-          </div>
+            <ChevronDown className="collapse-caret" size={14} />
+          </summary>
           <div className="privacy-mode-row">
             <span>Mirror</span>
             <div className="segmented">
@@ -300,13 +303,14 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
             </button>
           </div>
           <small className="privacy-help">Mirror flips only apply while the video preview is streaming.</small>
-        </div>
+        </details>
 
-        <div className="smart-control">
-          <div className="smart-label">
+        <details className="smart-control">
+          <summary className="smart-label">
             <Crosshair size={16} />
             <span>Focus</span>
-          </div>
+            <ChevronDown className="collapse-caret" size={14} />
+          </summary>
           <div className="privacy-mode-row">
             <span>Target</span>
             <div className="segmented">
@@ -327,13 +331,14 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
               ? `Region metering at ${pixyHid.focusMeteringPoint.x},${pixyHid.focusMeteringPoint.y}. Click the preview to aim it.`
               : "Region meters where you click in the video preview."}
           </small>
-        </div>
+        </details>
 
-        <div className="smart-control">
-          <div className="smart-label">
+        <details className="smart-control">
+          <summary className="smart-label">
             <Volume2 size={16} />
             <span>Audio DSP</span>
-          </div>
+            <ChevronDown className="collapse-caret" size={14} />
+          </summary>
           <div className="segmented">
             {audioModes.map((mode) => (
               <button
@@ -442,13 +447,14 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
               )}
             </>
           )}
-        </div>
+        </details>
 
-        <div className="smart-control">
-          <div className="smart-label">
+        <details className="smart-control">
+          <summary className="smart-label">
             <Lock size={16} />
             <span>Locks &amp; Imaging</span>
-          </div>
+            <ChevronDown className="collapse-caret" size={14} />
+          </summary>
           <div className="smart-toggle-stack">
             <ToggleRow
               label="WB lock"
@@ -483,13 +489,14 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
               onToggle={() => void pixyHid.setDenoise(!(pixyHid.denoiseEnabled ?? false))}
             />
           </div>
-        </div>
+        </details>
 
-        <div className="smart-control">
-          <div className="smart-label">
+        <details className="smart-control">
+          <summary className="smart-label">
             <Power size={16} />
             <span>Power-On &amp; Remote</span>
-          </div>
+            <ChevronDown className="collapse-caret" size={14} />
+          </summary>
           <div className="segmented">
             <button disabled={disabled} onClick={() => void pixyHid.capturePowerOnDefault()}>Save current</button>
             <button disabled={disabled} onClick={() => void pixyHid.disablePowerOnDefault()}>Disable</button>
@@ -507,7 +514,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
             disabled={disabled}
             onToggle={() => void pixyHid.setRemotePairing(!(pixyHid.remotePairingEnabled ?? false))}
           />
-        </div>
+        </details>
 
         <div className="smart-control advanced-control">
           <button
