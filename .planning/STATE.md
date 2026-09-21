@@ -162,3 +162,22 @@ Gates: 185 backend + 233 frontend tests, tsc/build clean, 10/10
 browser flows (0 console/page errors, real 1920x1080 frames, valid mkv),
 live-verified on hardware. Camera parked in privacy, vcam running,
 automation armed, zero orphan processes.
+
+Post-ship ops (2026-09-21):
+- Re-verified live: 10/10 verify flows green, full call cycle
+  (ffmpeg attach → call-start:tracking+unmute → detach →
+  call-end:privacy+remute), and a real OBS attach on video10 →
+  call-start fired against the running feeder.
+- tmp-verify.mjs promoted to frontend/scripts/verify-live.mjs
+  (`npm run verify:live`) and committed.
+- Installed desktop entry refreshed: StartupWMClass now `pixy-arch`
+  to match the launcher's `--class`.
+- PIXY mic set as PipeWire default source (was muted-when-idle but
+  not default).
+- nille/omarchy-emeet-pixy installed into the Omarchy bar. Its
+  preview/snapshot cannot grab /dev/video0 while the vcam feeder
+  owns it, and /dev/video10 is effectively single-reader (OBS era) —
+  panel preview will report "in use"; set `preview false` via
+  `omarchy bar set` if the placeholder annoys. Keep its call*
+  settings OFF: the feeder looks like a permanent call to it.
+  PixyPilot automation already owns that logic correctly.
