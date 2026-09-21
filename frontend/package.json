@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:smoke": "node scripts/smoke-ui.mjs"
+    "test:smoke": "node scripts/smoke-ui.mjs",
+    "verify:live": "node scripts/verify-live.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
