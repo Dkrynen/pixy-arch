@@ -274,6 +274,10 @@ export type VirtualCamStatus = {
   available: boolean;
   sink_path: string | null;
   running: boolean;
+  // "live" = real pipeline streaming; "standby" = armed on-demand with a
+  // synthetic feed holding the sink while the camera stays off.
+  mode?: "off" | "standby" | "live";
+  armed?: boolean;
   pid: number | null;
   pipeline: string;
   source_device: string | null;
@@ -380,6 +384,8 @@ export type AppSettings = {
     device: string | null;
     label: string;
     autostart: boolean;
+    on_demand: boolean;
+    idle_grace_seconds: number;
   };
   config: {
     path: string;
@@ -414,5 +420,7 @@ export type AppSettingsUpdate = {
     device?: string | null;
     label?: string;
     autostart?: boolean;
+    on_demand?: boolean;
+    idle_grace_seconds?: number;
   };
 };

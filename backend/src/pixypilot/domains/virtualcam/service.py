@@ -1,17 +1,24 @@
 import asyncio
 import contextlib
 import fcntl
+import logging
 import os
 import signal
 import struct
 import tempfile
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pixypilot.domains.video.service import _jpeg_frames, get_video_service
 
-from pixypilot.config import virtualcam_device, virtualcam_label
+from pixypilot.config import (
+    virtualcam_device,
+    virtualcam_idle_grace_seconds,
+    virtualcam_label,
+    virtualcam_on_demand,
+)
 from pixypilot.domains.virtualcam.models import (
     VirtualCamActionResult,
     VirtualCamStartRequest,
@@ -31,6 +38,17 @@ WHITEBOARD_FIRST_FRAME_TIMEOUT_S = 5.0
 # bad input format, ...). Long enough for v4l2 probing to fail, short enough
 # for the API to stay snappy.
 SPAWN_WATCH_S = 0.5
+
+# On-demand mode: poll cadence for sink-consumer scans, and the backoff after
+# a failed demand-start so a busy source doesn't hot-loop ffmpeg spawns.
+DEMAND_POLL_S = 1.0
+DEMAND_START_BACKOFF_S = 5.0
+# Standby writes at 5fps (~2% CPU vs ~16% at 30): the loopback still
+# advertises 30fps — its S_PARM default is independent of write pace — and
+# a probing reader only waits ~200ms for a frame.
+STANDBY_FPS = 5.0
+
+_LOG = logging.getLogger("pixypilot.virtualcam")
 
 _V4L2_BUF_TYPE_VIDEO_CAPTURE = 1
 _V4L2_FORMAT_SIZE = 208
@@ -106,6 +124,41 @@ def build_ffmpeg_command(
         "-f",
         "mjpeg",
         "pipe:1",
+    ]
+
+
+def build_standby_command(
+    width: int, height: int, fps: float, frame_path: str, sink_path: str
+) -> list[str]:
+    # Synthetic dark feed that holds the sink's capture caps while nothing
+    # reads it — an idle v4l2loopback advertises output-only and disappears
+    # from OBS. It never opens the source, so the Pixy sensor stays powered
+    # down until a real consumer attaches. A canned YUYV frame looped
+    # straight to the device at 5fps costs ~2% CPU; a lavfi generator burns
+    # ~30% because loopback never blocks writers. -re + -r pace the loop.
+    return [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-re",
+        "-stream_loop",
+        "-1",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "yuyv422",
+        "-s",
+        f"{width}x{height}",
+        "-r",
+        f"{fps:g}",
+        "-i",
+        frame_path,
+        "-f",
+        "v4l2",
+        "-pix_fmt",
+        "yuyv422",
+        sink_path,
     ]
 
 
@@ -274,7 +327,7 @@ def _read_stderr_tail(path: str | None, max_bytes: int = 4000) -> str:
     return text[-max_bytes:]
 
 
-def _remove_quietly(path: str | None) -> None:
+def _remove_quietly(path: str | Path | None) -> None:
     if not path:
         return
     try:
@@ -364,6 +417,17 @@ class VirtualCamService:
         self._last_error: str | None = None
         self._relay: FrameRelay | None = None
         self._relay_task: asyncio.Task[None] | None = None
+        # On-demand mode state: armed means the sink is managed — a standby
+        # feeder holds its caps while idle, the real pipeline runs only while
+        # a consumer is attached. Disarmed (manual stop) frees the sink.
+        self._armed = False
+        self._armed_request: VirtualCamStartRequest | None = None
+        self._idle_process: asyncio.subprocess.Process | None = None
+        self._idle_stderr_path: str | None = None
+        self._idle_frame_path: str | None = None
+        self._demand_task: asyncio.Task[None] | None = None
+        self._idle_since: float | None = None
+        self._demand_backoff_until = 0.0
         # Serializes start/stop: two concurrent starts could both pass the
         # _running() check, and the loser's ffmpeg would leak holding the
         # source device with no tracked pid to reap.
@@ -374,6 +438,20 @@ class VirtualCamService:
         pump_running = self._pump is not None and self._pump.running
         orphan_running = self._orphan_pid is not None
         return ffmpeg_running or pump_running or orphan_running
+
+    def _standby_running(self) -> bool:
+        return self._idle_process is not None and self._idle_process.returncode is None
+
+    def _own_writer_pids(self) -> set[int]:
+        pids: set[int] = set()
+        if self._process is not None and self._process.returncode is None:
+            pids.add(self._process.pid)
+        pump_pid = self._pump_feeder_pid()
+        if pump_pid is not None:
+            pids.add(pump_pid)
+        if self._standby_running():
+            pids.add(self._idle_process.pid)
+        return pids
 
     def _pump_feeder_pid(self) -> int | None:
         pump = self._pump
@@ -467,6 +545,14 @@ class VirtualCamService:
             self._pump = None
             if self._last_error is None:
                 self._last_error = "whiteboard pipeline stopped unexpectedly"
+        if self._idle_process is not None and self._idle_process.returncode is not None:
+            tail = _read_stderr_tail(self._idle_stderr_path)
+            _remove_quietly(self._idle_stderr_path)
+            self._idle_stderr_path = None
+            self._idle_process = None
+            if self._armed and self._last_error is None:
+                detail = f": {tail}" if tail else ""
+                self._last_error = f"standby feeder exited unexpectedly{detail}"
         if self._orphan_pid is not None:
             try:
                 os.kill(self._orphan_pid, 0)
@@ -477,31 +563,41 @@ class VirtualCamService:
         negotiated: tuple[int, int, str, float | None] | None = None
         if sink is not None:
             consumers, writer_pid, negotiated = await asyncio.to_thread(_inspect_sink, sink)
-            if not self._running() and writer_pid is not None:
+            if (
+                not self._running()
+                and writer_pid is not None
+                and writer_pid not in self._own_writer_pids()
+            ):
                 # A foreign/stale ffmpeg owns the sink — report it as running
-                # so the UI does not pretend the virtual cam is free.
+                # so the UI does not pretend the virtual cam is free. Our own
+                # standby feeder is expected, not an orphan.
                 self._orphan_pid = writer_pid
         running = self._running()
+        mode = "live" if running else "standby" if self._standby_running() else "off"
 
         status = VirtualCamStatus(
             available=sink is not None,
             sink_path=str(sink) if sink else None,
             running=running,
+            mode=mode,
+            armed=self._armed,
             pipeline=self._pipeline,
             transform=self._transform,
             consumers=consumers,
             reason=None if sink else "no v4l2loopback device found (install v4l2loopback-dkms and load the module)",
             last_error=self._last_error,
         )
-        if not running:
-            return status
-
         if self._process is not None:
             status.pid = self._process.pid
         elif self._pump is not None:
             status.pid = self._pump_feeder_pid()
+        elif self._standby_running():
+            status.pid = self._idle_process.pid
         else:
             status.pid = self._orphan_pid
+        if not running and not self._standby_running():
+            return status
+
         status.source_device = str(self._source_path) if self._source_path else None
         if self._pump is not None:
             status.frames = self._pump.frames_pumped
@@ -514,9 +610,205 @@ class VirtualCamService:
             status.fps = self._requested_fps
         return status
 
+    async def arm(self, request: VirtualCamStartRequest | None = None) -> VirtualCamActionResult:
+        """Arm the sink for on-demand feeding: standby frames while idle,
+        the real pipeline only while an app consumes the virtual camera."""
+        async with self._lifecycle_lock:
+            self._armed = True
+            if request is not None:
+                self._armed_request = request
+            elif self._armed_request is None:
+                self._armed_request = VirtualCamStartRequest()
+            self._ensure_demand_watch()
+            sink = self._sink_path or _find_loopback_device()
+            if sink is None or not sink.exists():
+                return self._fail("no v4l2loopback device found; load the module first")
+            sink = Path(os.path.realpath(sink))
+            if self._running() or self._standby_running():
+                return VirtualCamActionResult(
+                    ok=True, running=self._running(), sink_path=str(sink)
+                )
+            if not await self._start_idle_locked(sink):
+                return self._fail(
+                    self._last_error or "standby feeder could not be started", sink
+                )
+            return VirtualCamActionResult(
+                ok=True,
+                running=False,
+                pid=self._idle_process.pid if self._idle_process else None,
+                sink_path=str(sink),
+            )
+
     async def start(self, request: VirtualCamStartRequest) -> VirtualCamActionResult:
         async with self._lifecycle_lock:
+            # A manual start arms on-demand too: the pipeline goes live now,
+            # then returns to standby when the last consumer detaches.
+            self._armed = True
+            self._armed_request = request
+            self._ensure_demand_watch()
+            await self._stop_idle_locked()
             return await self._start_locked(request)
+
+    def _ensure_demand_watch(self) -> None:
+        if self._demand_task is None or self._demand_task.done():
+            self._demand_task = asyncio.get_running_loop().create_task(self._demand_loop())
+
+    async def _demand_loop(self) -> None:
+        while True:
+            try:
+                await self._demand_tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                _LOG.exception("demand watch tick failed")
+            await asyncio.sleep(DEMAND_POLL_S)
+
+    def _own_live(self) -> bool:
+        ffmpeg_live = self._process is not None and self._process.returncode is None
+        pump_live = self._pump is not None and self._pump.running
+        return ffmpeg_live or pump_live
+
+    async def _recording_active(self) -> bool:
+        # An active recording consumes the frame relay, not the sink — don't
+        # drop to standby out from under it just because no app is reading.
+        try:
+            return (await get_video_service().recording_status()).recording
+        except Exception:
+            return True  # can't tell → keep the feed alive rather than risk it
+
+    async def _demand_tick(self) -> None:
+        if not self._armed or not virtualcam_on_demand():
+            self._idle_since = None
+            return
+        sink = self._sink_path or _find_loopback_device()
+        if sink is None:
+            self._idle_since = None
+            return
+        consumers, writer_pid = await asyncio.to_thread(_scan_sink_holders, sink)
+        foreign_writer = (
+            writer_pid
+            if writer_pid is not None and writer_pid not in self._own_writer_pids()
+            else None
+        )
+        if consumers > 0:
+            self._idle_since = None
+            if self._own_live() or foreign_writer is not None:
+                return
+            if time.monotonic() < self._demand_backoff_until:
+                return
+            async with self._lifecycle_lock:
+                await self._stop_idle_locked()
+                result = await self._start_locked(
+                    self._armed_request or VirtualCamStartRequest()
+                )
+                if not result.ok:
+                    # Keep the sink's caps alive for the waiting app even
+                    # though the source could not be claimed right now.
+                    await self._start_idle_locked(sink)
+            if result.ok:
+                _LOG.info("demand start: %d consumer(s) on %s", consumers, sink)
+            else:
+                self._demand_backoff_until = time.monotonic() + DEMAND_START_BACKOFF_S
+                _LOG.warning("demand start failed: %s", result.reason)
+            return
+        if self._own_live():
+            if self._idle_since is None:
+                self._idle_since = time.monotonic()
+                return
+            if time.monotonic() - self._idle_since < virtualcam_idle_grace_seconds():
+                return
+            async with self._lifecycle_lock:
+                if await self._recording_active():
+                    self._idle_since = time.monotonic()
+                    return
+                await self._stop_locked()
+                await self._start_idle_locked(sink)
+            self._idle_since = None
+            _LOG.info("demand idle: camera released, standby feed on %s", sink)
+            return
+        # Armed but nothing owns the sink: a foreign writer is left alone;
+        # otherwise (re)establish the standby feed so caps stay advertised.
+        self._idle_since = None
+        if foreign_writer is None and not self._standby_running():
+            async with self._lifecycle_lock:
+                if not self._standby_running():
+                    await self._start_idle_locked(sink)
+
+    async def _start_idle_locked(self, sink: Path) -> bool:
+        request = self._armed_request or VirtualCamStartRequest()
+        # Fixed paths: standby spawns on every idle transition, so unique
+        # tempfiles would leak a 4MB frame + log per cycle on restarts.
+        frame_path = Path(tempfile.gettempdir()) / "pixypilot-standby-frame.yuyv"
+        log_path = Path(tempfile.gettempdir()) / "pixypilot-standby.log"
+        try:
+            # One dark frame: Y=0x10 (limited-range black), U=V=0x80 (neutral).
+            frame_path.write_bytes(
+                b"\x10\x80\x10\x80" * (request.output_width * request.output_height // 2)
+            )
+            stderr_log = log_path.open("wb")
+        except OSError as exc:
+            self._last_error = _spawn_error_reason(exc)
+            return False
+        command = build_standby_command(
+            request.output_width,
+            request.output_height,
+            STANDBY_FPS,
+            str(frame_path),
+            str(sink),
+        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=stderr_log,
+            )
+        except OSError as exc:
+            stderr_log.close()
+            _remove_quietly(log_path)
+            _remove_quietly(frame_path)
+            self._last_error = _spawn_error_reason(exc)
+            return False
+        stderr_log.close()
+        self._idle_process = process
+        self._idle_stderr_path = str(log_path)
+        self._idle_frame_path = str(frame_path)
+        self._sink_path = sink
+        await asyncio.sleep(SPAWN_WATCH_S)
+        if process.returncode is not None:
+            tail = _read_stderr_tail(str(log_path))
+            if self._idle_process is process:
+                self._idle_process = None
+            if self._idle_stderr_path == str(log_path):
+                self._idle_stderr_path = None
+            if self._idle_frame_path == str(frame_path):
+                self._idle_frame_path = None
+            _remove_quietly(log_path)
+            _remove_quietly(frame_path)
+            self._last_error = (
+                f"standby feeder exited immediately: {tail}"
+                if tail
+                else "standby feeder exited immediately"
+            )
+            return False
+        return True
+
+    async def _stop_idle_locked(self) -> None:
+        process = self._idle_process
+        self._idle_process = None
+        _remove_quietly(self._idle_stderr_path)
+        self._idle_stderr_path = None
+        _remove_quietly(self._idle_frame_path)
+        self._idle_frame_path = None
+        if process is None or process.returncode is not None:
+            return
+        process.send_signal(signal.SIGINT)
+        try:
+            await asyncio.wait_for(process.wait(), timeout=3.0)
+        except TimeoutError:
+            process.kill()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(process.wait(), timeout=5.0)
 
     async def _start_locked(self, request: VirtualCamStartRequest) -> VirtualCamActionResult:
         if self._orphan_pid is not None:
@@ -663,8 +955,20 @@ class VirtualCamService:
         )
 
     async def stop(self) -> VirtualCamActionResult:
+        # Stop means stop: release the camera AND free the sink (no standby
+        # feed). The watcher is cancelled after our own teardown wins the
+        # lifecycle lock so a mid-transition tick can't leave partial state.
+        self._armed = False
         async with self._lifecycle_lock:
-            return await self._stop_locked()
+            result = await self._stop_locked()
+            await self._stop_idle_locked()
+        task = self._demand_task
+        self._demand_task = None
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        return result
 
     async def _stop_locked(self) -> VirtualCamActionResult:
         await self._clear_relay()

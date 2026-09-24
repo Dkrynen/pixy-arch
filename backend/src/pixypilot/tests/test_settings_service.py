@@ -119,9 +119,13 @@ async def test_virtualcam_settings_expose_autostart_and_persist(tmp_path) -> Non
     settings = await service.get_settings()
     assert settings.virtualcam.autostart is False
     assert settings.virtualcam.label == "PixyPilot Virtual"
+    assert settings.virtualcam.on_demand is True
+    assert settings.virtualcam.idle_grace_seconds == 8
 
     updated = await service.update_settings(
-        AppSettingsUpdate(virtualcam={"autostart": True})
+        AppSettingsUpdate(virtualcam={"autostart": True, "on_demand": False})
     )
     assert updated.virtualcam.autostart is True
+    assert updated.virtualcam.on_demand is False
     assert "autostart: true" in settings_path.read_text(encoding="utf-8")
+    assert "on_demand: false" in settings_path.read_text(encoding="utf-8")

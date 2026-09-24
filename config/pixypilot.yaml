@@ -19,3 +19,5 @@ hid:
   report_gap_ms: 25
 virtualcam:
   autostart: true
+  on_demand: true
+  idle_grace_seconds: 8

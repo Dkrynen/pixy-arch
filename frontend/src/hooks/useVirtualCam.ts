@@ -14,6 +14,8 @@ export type VirtualCamRuntimeStatus = VirtualCamStatus & {
   frames: number | null;
   consumers: number;
   last_error: string | null;
+  mode: "off" | "standby" | "live";
+  armed: boolean;
 };
 
 // VirtualCamStartRequest does not carry input_format yet; the backend accepts

@@ -55,6 +55,12 @@ class VirtualCamStatus(BaseModel):
     available: bool
     sink_path: str | None = None
     running: bool = False
+    # "live" = real pipeline streaming, "standby" = armed with a synthetic
+    # feed holding the sink's caps while the camera stays off, "off" =
+    # sink unmanaged. `armed` is true while the on-demand watcher owns the
+    # live↔standby transitions.
+    mode: Literal["off", "standby", "live"] = "off"
+    armed: bool = False
     pid: int | None = None
     pipeline: str = "transform"
     source_device: str | None = None

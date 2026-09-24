@@ -82,3 +82,17 @@ def test_virtualcam_autostart_defaults_on_and_reads_config(tmp_path) -> None:
     off_path = tmp_path / "off.yaml"
     off_path.write_text("virtualcam:\n  autostart: false\n", encoding="utf-8")
     assert config.virtualcam_autostart(off_path) is False
+
+
+def test_virtualcam_on_demand_defaults_on_and_reads_config(tmp_path) -> None:
+    default_path = tmp_path / "default.yaml"
+    default_path.write_text("", encoding="utf-8")
+    assert config.virtualcam_on_demand(default_path) is True
+    assert config.virtualcam_idle_grace_seconds(default_path) == 8
+
+    custom_path = tmp_path / "custom.yaml"
+    custom_path.write_text(
+        "virtualcam:\n  on_demand: false\n  idle_grace_seconds: 3\n", encoding="utf-8"
+    )
+    assert config.virtualcam_on_demand(custom_path) is False
+    assert config.virtualcam_idle_grace_seconds(custom_path) == 3

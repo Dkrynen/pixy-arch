@@ -40,9 +40,14 @@ function formatOptionLabel(format: VideoFormatOption): string {
 export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Props) {
   const status = virtualCam.status;
   const running = status?.running ?? false;
+  const standby = !running && status?.mode === "standby";
   const autostart = privacySafety.settings?.virtualcam.autostart ?? true;
+  const onDemand = privacySafety.settings?.virtualcam.on_demand ?? true;
   const toggleAutostart = (enabled: boolean) => {
     void privacySafety.saveSettings({ virtualcam: { autostart: enabled } }).catch(() => undefined);
+  };
+  const toggleOnDemand = (enabled: boolean) => {
+    void privacySafety.saveSettings({ virtualcam: { on_demand: enabled } }).catch(() => undefined);
   };
   const [pipeline, setPipeline] = useState<"transform" | "whiteboard">("transform");
   const [transform, setTransform] = useState<VirtualCamTransform>({ mirror: false, rotate: 0, zoom: 1.0 });
@@ -75,7 +80,7 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
   };
 
   const negotiated =
-    running && status?.output_width && status?.output_height
+    (running || standby) && status?.output_width && status?.output_height
       ? `${status.output_width}×${status.output_height}`
       : null;
   const consumers = status?.consumers ?? 0;
@@ -90,13 +95,23 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
       <div className="hid-status-row">
         <span className={`hid-dot ${running ? "is-ready" : status?.available ? "is-warn" : ""}`} />
         <div>
-          <strong>{running ? `Streaming (${status?.pipeline})` : status?.available ? "Ready" : "No loopback device"}</strong>
+          <strong>
+            {running
+              ? `Streaming (${status?.pipeline})`
+              : standby
+                ? "Standby"
+                : status?.available
+                  ? "Ready"
+                  : "No loopback device"}
+          </strong>
           <small>
             {running
               ? `${status?.source_device ?? "camera"} → ${status?.sink_path ?? "loopback"}`
-              : status?.sink_path ?? status?.reason ?? "Checking v4l2loopback"}
+              : standby
+                ? `${status?.sink_path ?? "loopback"} · camera off until an app connects`
+                : status?.sink_path ?? status?.reason ?? "Checking v4l2loopback"}
           </small>
-          {running && (
+          {(running || standby) && (
             <small className="vcam-runtime-stats">
               {negotiated ?? "format pending"}
               {status?.output_pixel_format ? ` · ${status.output_pixel_format}` : ""}
@@ -234,6 +249,11 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
                 <strong>{status?.sink_path ?? "the virtual camera"}</strong>. The live monitor shows
                 this same feed while the pipeline runs.
               </>
+            ) : standby ? (
+              <>
+                <strong>{status?.sink_path ?? "The virtual camera"}</strong> stays listed in OBS —
+                the camera powers up only while an app is reading it.
+              </>
             ) : (
               <>
                 The loopback only advertises a camera while it is streaming — keep it running
@@ -258,8 +278,28 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
           </button>
           <small className="vcam-field-hint">
             {autostart
-              ? "Always streaming — OBS sees the camera as soon as the service is up."
+              ? "Sink is managed from boot — OBS always sees the camera."
               : "Start the pipeline manually; the device appears in OBS only while streaming."}
+          </small>
+        </div>
+
+        <div className="smart-control smart-toggle-row">
+          <div className="smart-label">
+            <span>On demand</span>
+          </div>
+          <button
+            className={`toggle-switch ${onDemand ? "is-on" : ""}`}
+            disabled={privacySafety.settingsPending || !privacySafety.settingsLoaded}
+            aria-pressed={onDemand}
+            aria-label="Run the camera only while an app uses it"
+            onClick={() => toggleOnDemand(!onDemand)}
+          >
+            <span />
+          </button>
+          <small className="vcam-field-hint">
+            {onDemand
+              ? "Standby feed holds the sink; the Pixy powers up only while an app reads it."
+              : "Once started the camera streams continuously until stopped."}
           </small>
         </div>
       </div>

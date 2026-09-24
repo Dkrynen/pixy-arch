@@ -58,6 +58,8 @@ class SettingsService:
                 device=str(vcam_device) if vcam_device is not None else None,
                 label=config.virtualcam_label(self.settings_path),
                 autostart=config.virtualcam_autostart(self.settings_path),
+                on_demand=config.virtualcam_on_demand(self.settings_path),
+                idle_grace_seconds=round(config.virtualcam_idle_grace_seconds(self.settings_path)),
             ),
             config=ConfigSettings(path=str(config.config_file_path(self.settings_path))),
         )

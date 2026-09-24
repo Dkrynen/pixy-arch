@@ -51,6 +51,8 @@ function status(overrides: Partial<VirtualCamRuntimeStatus> = {}): VirtualCamRun
     fps: null,
     frames: null,
     consumers: 0,
+    mode: "off",
+    armed: false,
     transform: { mirror: false, rotate: 0, zoom: 1 },
     reason: null,
     last_error: null,
@@ -94,7 +96,7 @@ function privacySafety(overrides: Partial<UsePrivacySafetyResult> = {}): UsePriv
     settingsError: null,
     settingsPending: false,
     refreshSettings: vi.fn(),
-    saveSettings: vi.fn(),
+    saveSettings: vi.fn().mockResolvedValue(undefined),
     enterPrivacy: vi.fn(),
     leavePrivacy: vi.fn(),
     ...overrides
@@ -215,5 +217,41 @@ describe("VirtualCamPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Whiteboard" }));
     expect(screen.queryByText("Mirror")).not.toBeInTheDocument();
     expect(screen.queryByText("Rotate")).not.toBeInTheDocument();
+  });
+
+  it("shows standby state while armed on demand", () => {
+    render(
+      <VirtualCamPanel
+        virtualCam={virtualCam({
+          status: status({ mode: "standby", armed: true, output_width: 1920, output_height: 1080, fps: 30 })
+        })}
+        videoFormats={videoFormats()}
+        privacySafety={privacySafety()}
+      />
+    );
+
+    expect(screen.getByText("Standby")).toBeInTheDocument();
+    expect(screen.getByText(/camera off until an app connects/)).toBeInTheDocument();
+    expect(screen.getByText(/stays listed in OBS/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start virtual camera" })).toBeEnabled();
+  });
+
+  it("saves the on-demand setting from the toggle", () => {
+    const safety = privacySafety({
+      settings: {
+        virtualcam: {
+          device: null,
+          label: "PixyPilot Virtual",
+          autostart: true,
+          on_demand: true,
+          idle_grace_seconds: 8
+        }
+      } as never
+    });
+    render(<VirtualCamPanel virtualCam={virtualCam()} videoFormats={videoFormats()} privacySafety={safety} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Run the camera only while an app uses it" }));
+
+    expect(safety.saveSettings).toHaveBeenCalledWith({ virtualcam: { on_demand: false } });
   });
 });

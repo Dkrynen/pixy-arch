@@ -163,6 +163,47 @@ browser flows (0 console/page errors, real 1920x1080 frames, valid mkv),
 live-verified on hardware. Camera parked in privacy, vcam running,
 automation armed, zero orphan processes.
 
+Post-ship ops (2026-09-24) — on-demand virtual camera:
+
+The autostarted vcam feeder held /dev/video0 open 24/7 (~25% CPU on one core,
+sensor always streaming) just to keep video10 enumerable. Replaced
+with a demand-driven lifecycle in VirtualCamService:
+
+- Standby: ffmpeg loops one canned 1920x1080 YUYV dark frame
+  (-re -stream_loop -1 -f rawvideo) into video10 at 5fps — capture
+  caps stay advertised (OBS still lists "PixyPilot Virtual", and the
+  loopback still reports 1080p@30 regardless of write pace), ~2% of
+  one core, and /dev/video0 is never opened. A lavfi generator was
+  tried first: loopback never blocks writers so it spun at ~650%
+  unthrottled, ~30% with -re; a 30fps canned loop was ~16% (writes
+  dominate), so standby writes at 5fps — a probing reader waits ~200ms
+  for a frame. Frame+log live at fixed paths
+  /tmp/pixypilot-standby-{frame.yuyv,log} so restarts/transitions
+  can't leak unique tempfiles.
+- Demand: 1s _demand_tick reuses _scan_sink_holders (enumerators like
+  wireplumber excluded). Consumer on video10 → standby stops, real
+  pipeline starts on video0; zero consumers for idle_grace_seconds
+  (default 8) → live stops, standby resumes. Foreign writers are never
+  stomped; active recording blocks the drop; failed demand starts
+  re-arm standby + 5s backoff.
+- start() arms + goes live immediately; stop() disarms and frees the
+  sink (a disarmed sink never auto-restarts). New status fields:
+  mode: off|standby|live, armed: bool. New settings:
+  virtualcam.on_demand (default true), virtualcam.idle_grace_seconds
+  (default 8), persisted via /api/settings, toggle in VirtualCamPanel.
+- deploy fix: removed keep_format=1 from modprobe.d conf + setup
+  script — v4l2loopback >=0.13 moved it to a device ioctl; as a module
+  param it makes modprobe fail and /dev/video10 never appears.
+- Live-verified: idle (video0 free, caps 1080p30 on video10) →
+  ffmpeg consumer attach → live in ~1-2s (video0+video10 held by the
+  real pipeline) → detach → standby after grace, video0 free again.
+  Verified twice including after the canned-frame change.
+
+Note: the omarchy-emeet-pixy bar widget's call* settings were kept OFF
+because the old feeder looked like a permanent call — with on-demand
+mode video0 is only held during real use, so they can be re-enabled.
+Its preview can now grab video0 while idle too.
+
 Post-ship ops (2026-09-21):
 - Re-verified live: 10/10 verify flows green, full call cycle
   (ffmpeg attach → call-start:tracking+unmute → detach →

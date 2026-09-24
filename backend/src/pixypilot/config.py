@@ -40,11 +40,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "virtualcam": {
         "device": None,
         "label": "PixyPilot Virtual",
-        # Keep the loopback fed from boot so OBS/browsers always see a
+        # Keep the sink managed from boot so OBS/browsers always see a
         # capture device — an idle v4l2loopback advertises output-only caps
-        # and does not enumerate as a camera. Set to false to start the
-        # pipeline on demand only.
+        # and does not enumerate as a camera.
         "autostart": True,
+        # On-demand: a cheap synthetic standby feed holds the sink's caps
+        # while nothing reads it, and the real camera pipeline runs only
+        # while a consumer is attached — the Pixy sensor powers down
+        # between calls. False restores always-streaming from boot.
+        "on_demand": True,
+        # Seconds with zero sink consumers before the pipeline drops back
+        # to standby; covers apps that close and reopen the device quickly.
+        "idle_grace_seconds": 8,
     },
     "automation": {
         "enabled": True,
@@ -162,6 +169,14 @@ def virtualcam_label(config_path: Path | None = None) -> str:
 
 def virtualcam_autostart(config_path: Path | None = None) -> bool:
     return _bool_at(["virtualcam", "autostart"], True, config_path)
+
+
+def virtualcam_on_demand(config_path: Path | None = None) -> bool:
+    return _bool_at(["virtualcam", "on_demand"], True, config_path)
+
+
+def virtualcam_idle_grace_seconds(config_path: Path | None = None) -> float:
+    return max(0, _int_at(["virtualcam", "idle_grace_seconds"], 8, config_path))
 
 
 def automation_config(config_path: Path | None = None) -> dict[str, Any]:

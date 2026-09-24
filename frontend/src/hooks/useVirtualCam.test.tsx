@@ -24,6 +24,8 @@ function status(overrides: Partial<VirtualCamRuntimeStatus> = {}): VirtualCamRun
     available: true,
     sink_path: "/dev/video10",
     running: false,
+    mode: "off",
+    armed: false,
     pid: null,
     pipeline: "transform",
     source_device: null,

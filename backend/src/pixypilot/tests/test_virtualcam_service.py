@@ -16,6 +16,7 @@ from pixypilot.domains.virtualcam.service import (
     _scan_sink_holders,
     build_ffmpeg_command,
     build_filter_chain,
+    build_standby_command,
 )
 
 
@@ -114,6 +115,9 @@ def _patch_device_lookup(monkeypatch, tmp_path) -> tuple[Path, Path]:
     monkeypatch.setattr(vcam_module, "_scan_sink_holders", lambda *_args, **_kwargs: (0, None))
     monkeypatch.setattr(vcam_module.asyncio, "to_thread", immediate_to_thread)
     monkeypatch.setattr(vcam_module.asyncio, "sleep", no_sleep)
+    # The demand-watch loop sleeps via the patched asyncio.sleep, which would
+    # spin forever — ticks are exercised directly instead.
+    monkeypatch.setattr(VirtualCamService, "_ensure_demand_watch", lambda self: None)
     return source, sink
 
 
@@ -447,6 +451,225 @@ async def test_frame_relay_close_unblocks_subscribers() -> None:
     await relay.close()
     with pytest.raises(StopAsyncIteration):
         await asyncio.wait_for(waiter, timeout=1)
+
+
+def test_standby_command_feeds_synthetic_frames_to_sink() -> None:
+    command = build_standby_command(1920, 1080, 30.0, "/tmp/dark.yuyv", "/dev/video10")
+    assert command[:2] == ["ffmpeg", "-hide_banner"]
+    assert command[command.index("-f") + 1] == "rawvideo"
+    # A canned frame + -stream_loop avoids a per-frame filter graph: a lavfi
+    # generator burns ~30% CPU because a loopback never blocks writers.
+    assert "-re" in command
+    assert "-stream_loop" in command
+    assert command[command.index("-i") + 1] == "/tmp/dark.yuyv"
+    assert command[command.index("-s") + 1] == "1920x1080"
+    assert command[command.index("-pix_fmt") + 1] == "yuyv422"
+    assert command[-1] == "/dev/video10"
+    # The standby feed must never open the physical camera.
+    assert "/dev/video0" not in command
+
+
+def _patch_on_demand(monkeypatch, grace: float = 8.0) -> None:
+    monkeypatch.setattr(vcam_module, "virtualcam_on_demand", lambda *_a, **_k: True)
+    monkeypatch.setattr(vcam_module, "virtualcam_idle_grace_seconds", lambda *_a, **_k: grace)
+
+
+async def test_arm_enters_standby_without_touching_source(monkeypatch, tmp_path) -> None:
+    source, sink = _patch_device_lookup(monkeypatch, tmp_path)
+    _patch_on_demand(monkeypatch)
+    spawned: list[list[str]] = []
+
+    async def fake_exec(*args, **kwargs):
+        spawned.append([str(a) for a in args])
+        return FakeProcess()
+
+    monkeypatch.setattr(vcam_module.asyncio, "create_subprocess_exec", fake_exec)
+    service = VirtualCamService()
+
+    result = await service.arm(VirtualCamStartRequest())
+
+    assert result.ok is True
+    assert result.running is False
+    assert len(spawned) == 1
+    assert "rawvideo" in spawned[0]
+    assert str(sink) == spawned[0][-1]
+    assert str(source) not in spawned[0]
+
+    status = await service.status()
+    assert status.mode == "standby"
+    assert status.armed is True
+    assert status.running is False
+    # The standby writer is ours — it must not be adopted as a foreign orphan.
+    assert service._orphan_pid is None  # noqa: SLF001
+
+
+async def test_demand_tick_goes_live_on_consumer(monkeypatch, tmp_path) -> None:
+    source, sink = _patch_device_lookup(monkeypatch, tmp_path)
+    _patch_on_demand(monkeypatch)
+    spawned: list[list[str]] = []
+
+    async def fake_exec(*args, **kwargs):
+        spawned.append([str(a) for a in args])
+        return FakeProcess()
+
+    monkeypatch.setattr(vcam_module.asyncio, "create_subprocess_exec", fake_exec)
+    service = VirtualCamService()
+    await service.arm(VirtualCamStartRequest())
+    assert len(spawned) == 1  # standby feeder only
+
+    # An app (OBS) opens the sink: the writer pid reported is our own standby.
+    idle_pid = service._idle_process.pid  # noqa: SLF001
+    monkeypatch.setattr(
+        vcam_module,
+        "_scan_sink_holders",
+        lambda *_a, **_k: (1, idle_pid),
+    )
+    await service._demand_tick()  # noqa: SLF001
+
+    assert len(spawned) == 2
+    live_cmd = spawned[1]
+    assert str(source) in live_cmd and str(sink) in live_cmd
+    assert "rawvideo" not in live_cmd
+    status = await service.status()
+    assert status.mode == "live"
+    assert status.running is True
+
+
+async def test_demand_tick_does_not_stomp_foreign_writer(monkeypatch, tmp_path) -> None:
+    _patch_device_lookup(monkeypatch, tmp_path)
+    _patch_on_demand(monkeypatch)
+    spawned: list[list[str]] = []
+
+    async def fake_exec(*args, **kwargs):
+        spawned.append([str(a) for a in args])
+        return FakeProcess()
+
+    monkeypatch.setattr(vcam_module.asyncio, "create_subprocess_exec", fake_exec)
+    service = VirtualCamService()
+    await service.arm(VirtualCamStartRequest())
+
+    # A foreign ffmpeg is already writing the sink and an app reads it:
+    # we must not kill someone else's producer to claim the sink.
+    monkeypatch.setattr(vcam_module, "_scan_sink_holders", lambda *_a, **_k: (1, 987654))
+    await service._demand_tick()  # noqa: SLF001
+
+    assert len(spawned) == 1  # still just the standby feeder
+    assert service._process is None  # noqa: SLF001
+
+
+async def test_demand_tick_returns_to_standby_after_grace(monkeypatch, tmp_path) -> None:
+    source, sink = _patch_device_lookup(monkeypatch, tmp_path)
+    _patch_on_demand(monkeypatch, grace=0.0)
+    spawned: list[list[str]] = []
+
+    async def fake_exec(*args, **kwargs):
+        spawned.append([str(a) for a in args])
+        return FakeProcess()
+
+    monkeypatch.setattr(vcam_module.asyncio, "create_subprocess_exec", fake_exec)
+    service = VirtualCamService()
+    await service.start(VirtualCamStartRequest())
+    assert service._own_live()  # noqa: SLF001
+
+    # First idle tick only starts the grace clock.
+    await service._demand_tick()  # noqa: SLF001
+    assert service._own_live()  # noqa: SLF001
+
+    # Second tick with grace=0 drops to standby and releases the camera.
+    await service._demand_tick()  # noqa: SLF001
+    assert service._own_live() is False  # noqa: SLF001
+    assert service._standby_running()  # noqa: SLF001
+    status = await service.status()
+    assert status.mode == "standby"
+
+
+async def test_demand_tick_stays_live_while_recording(monkeypatch, tmp_path) -> None:
+    _patch_device_lookup(monkeypatch, tmp_path)
+    _patch_on_demand(monkeypatch, grace=0.0)
+
+    class RecordingVideoService:
+        async def stop_streams(self, *_a, **_k):
+            return None
+
+        async def recording_status(self):
+            class Status:
+                recording = True
+
+            return Status()
+
+    monkeypatch.setattr(vcam_module, "get_video_service", lambda: RecordingVideoService())
+
+    async def fake_exec(*args, **kwargs):
+        return FakeProcess()
+
+    monkeypatch.setattr(vcam_module.asyncio, "create_subprocess_exec", fake_exec)
+    service = VirtualCamService()
+    await service.start(VirtualCamStartRequest())
+
+    await service._demand_tick()  # noqa: SLF001
+    await service._demand_tick()  # noqa: SLF001
+
+    assert service._own_live() is True  # noqa: SLF001
+
+
+async def test_demand_start_failure_recovers_standby_and_backs_off(
+    monkeypatch, tmp_path
+) -> None:
+    _patch_device_lookup(monkeypatch, tmp_path)
+    _patch_on_demand(monkeypatch)
+    spawned: list[list[str]] = []
+
+    async def fake_exec(*args, **kwargs):
+        spawned.append([str(a) for a in args])
+        # The live pipeline spawn dies instantly (camera busy); standby
+        # spawns succeed.
+        if "rawvideo" in args:
+            return FakeProcess()
+        return FakeProcess(returncode=1)
+
+    monkeypatch.setattr(vcam_module.asyncio, "create_subprocess_exec", fake_exec)
+    service = VirtualCamService()
+    await service.arm(VirtualCamStartRequest())
+
+    monkeypatch.setattr(vcam_module, "_scan_sink_holders", lambda *_a, **_k: (1, None))
+    await service._demand_tick()  # noqa: SLF001
+
+    # Failed demand start re-arms the standby feed so the sink keeps caps.
+    assert service._standby_running()  # noqa: SLF001
+    assert service._demand_backoff_until > 0  # noqa: SLF001
+    spawns_after_failure = len(spawned)
+
+    # Backoff: another tick with consumers present must not respawn ffmpeg.
+    await service._demand_tick()  # noqa: SLF001
+    assert len(spawned) == spawns_after_failure
+
+
+async def test_stop_disarms_and_frees_sink(monkeypatch, tmp_path) -> None:
+    _patch_device_lookup(monkeypatch, tmp_path)
+    _patch_on_demand(monkeypatch)
+    spawned_procs: list[FakeProcess] = []
+
+    async def fake_exec(*args, **kwargs):
+        proc = FakeProcess()
+        spawned_procs.append(proc)
+        return proc
+
+    monkeypatch.setattr(vcam_module.asyncio, "create_subprocess_exec", fake_exec)
+    service = VirtualCamService()
+    await service.arm(VirtualCamStartRequest())
+    assert service._standby_running()  # noqa: SLF001
+
+    await service.stop()
+
+    assert service._armed is False  # noqa: SLF001
+    assert service._standby_running() is False  # noqa: SLF001
+    assert spawned_procs[0].signals  # standby feeder got SIGINT
+
+    # Disarmed: a consumer attach must not restart the pipeline.
+    monkeypatch.setattr(vcam_module, "_scan_sink_holders", lambda *_a, **_k: (1, None))
+    await service._demand_tick()  # noqa: SLF001
+    assert service._process is None  # noqa: SLF001
+    assert service._standby_running() is False  # noqa: SLF001
 
 
 def test_build_relay_record_command_reads_stdin() -> None:

@@ -8,7 +8,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from pixypilot.api.routes import router
-from pixypilot.config import cors_origins, frontend_dist_path, start_in_privacy, virtualcam_autostart
+from pixypilot.config import (
+    cors_origins,
+    frontend_dist_path,
+    start_in_privacy,
+    virtualcam_autostart,
+    virtualcam_on_demand,
+)
 from pixypilot.domains.audio.service import get_audio_service
 from pixypilot.domains.automation.service import get_automation_service
 from pixypilot.domains.pixy_hid.service import get_pixy_hid_service
@@ -48,15 +54,25 @@ async def _autostart_virtualcam() -> None:
     # before claiming the camera — and don't keep retrying forever: a missing
     # device at boot is reported by /api/virtualcam/status anyway.
     service = get_virtualcam_service()
+    on_demand = virtualcam_on_demand()
     for attempt in range(30):
         try:
             status = await service.status()
-            if status.running:
+            if status.running or status.mode == "standby":
                 return
             if status.available:
-                await service.start(VirtualCamStartRequest())
-                _LOG.info("virtualcam autostart: pipeline started (attempt %d)", attempt + 1)
-                return
+                if on_demand:
+                    result = await service.arm(VirtualCamStartRequest())
+                    if result.ok:
+                        _LOG.info(
+                            "virtualcam autostart: armed on-demand standby (attempt %d)",
+                            attempt + 1,
+                        )
+                        return
+                else:
+                    await service.start(VirtualCamStartRequest())
+                    _LOG.info("virtualcam autostart: pipeline started (attempt %d)", attempt + 1)
+                    return
         except Exception:
             _LOG.warning("virtualcam autostart: attempt %d failed", attempt + 1, exc_info=True)
         await asyncio.sleep(1.0)

@@ -63,12 +63,16 @@ class VirtualCamSettings(BaseModel):
     device: str | None = None
     label: str = "PixyPilot Virtual"
     autostart: bool = True
+    on_demand: bool = True
+    idle_grace_seconds: int = 8
 
 
 class VirtualCamSettingsUpdate(BaseModel):
     device: str | None = None
     label: str | None = None
     autostart: bool | None = None
+    on_demand: bool | None = None
+    idle_grace_seconds: int | None = Field(default=None, ge=0)
 
 
 class ConfigSettings(BaseModel):
