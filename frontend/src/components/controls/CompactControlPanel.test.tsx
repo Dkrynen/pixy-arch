@@ -277,6 +277,52 @@ describe("CompactControlPanel", () => {
     expect(setValue).toHaveBeenCalledWith("power_line_frequency", 1);
   });
 
+  it("gives compact sliders, selects, and segmented choices accessible names and pressed state", () => {
+    const group: ControlGroup = {
+      id: "exposure",
+      title: "Exposure Control",
+      accent: "amber",
+      icon: SlidersHorizontal,
+      controls: [
+        control({ name: "gain", label: "Gain", kind: "int", value: 20, min: 0, max: 100, step: 1 }),
+        control({
+          name: "scene_mode",
+          label: "Scene Mode",
+          kind: "menu",
+          value: 3,
+          menu: [
+            { value: 0, label: "Auto" },
+            { value: 1, label: "Night" },
+            { value: 2, label: "Sport" },
+            { value: 3, label: "Portrait" },
+            { value: 4, label: "Landscape" }
+          ]
+        }),
+        control({ name: "backlight_compensation", label: "Backlight", kind: "bool", value: 1, min: 0, max: 1 })
+      ]
+    };
+    const controls: UseControlsResult = {
+      controls: group.controls,
+      groups: [group],
+      isLoading: false,
+      error: null,
+      pendingControl: null,
+      refresh: vi.fn(),
+      setValue: vi.fn(),
+      setValues: vi.fn()
+    };
+
+    render(
+      <CompactControlPanel group={group} controls={controls} pixyHid={pixyHid()} controlPresets={controlPresets()} />
+    );
+
+    expect(screen.getByRole("slider", { name: "ISO" })).toHaveValue("20");
+    expect(screen.getByRole("combobox", { name: "Scene Mode" })).toHaveValue("3");
+    const backlight = screen.getByRole("group", { name: "Backlight" });
+    const pressed = Array.from(backlight.querySelectorAll("button")).map((button) => button.getAttribute("aria-pressed"));
+    expect(pressed).toEqual(expect.arrayContaining(["true", "false"]));
+  });
+
   it("labels gain as ISO in exposure control", () => {
     const group: ControlGroup = {
       id: "exposure",

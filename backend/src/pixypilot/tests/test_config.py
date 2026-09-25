@@ -96,3 +96,33 @@ def test_virtualcam_on_demand_defaults_on_and_reads_config(tmp_path) -> None:
     )
     assert config.virtualcam_on_demand(custom_path) is False
     assert config.virtualcam_idle_grace_seconds(custom_path) == 3
+
+
+def test_project_root_accepts_shipped_example_config(tmp_path, monkeypatch) -> None:
+    # A fresh checkout has only config/pixypilot.example.yaml; the user's
+    # config/pixypilot.yaml is created later, in the same place.
+    project = tmp_path / "pixy-arch"
+    (project / "config").mkdir(parents=True)
+    (project / "config" / "pixypilot.example.yaml").write_text("safety: {}\n", encoding="utf-8")
+    (project / "backend").mkdir()
+    monkeypatch.chdir(project / "backend")
+
+    assert config.project_root() == project
+    assert config.config_file_path() == project / "config" / "pixypilot.yaml"
+
+
+def test_virtualcam_label_defaults_to_pixy_arch_and_keeps_legacy(tmp_path) -> None:
+    default_path = tmp_path / "default.yaml"
+    default_path.write_text("", encoding="utf-8")
+    assert config.virtualcam_label(default_path) == "Pixy Arch Virtual"
+    assert config.virtualcam_labels(default_path) == ["Pixy Arch Virtual", "PixyPilot Virtual"]
+
+    custom_path = tmp_path / "custom.yaml"
+    custom_path.write_text("virtualcam:\n  label: Studio Cam\n", encoding="utf-8")
+    assert config.virtualcam_labels(custom_path) == ["Studio Cam", "PixyPilot Virtual"]
+
+
+def test_automation_watches_auto_device_by_default(tmp_path) -> None:
+    default_path = tmp_path / "default.yaml"
+    default_path.write_text("", encoding="utf-8")
+    assert config.automation_config(default_path)["video_device"] == "auto"

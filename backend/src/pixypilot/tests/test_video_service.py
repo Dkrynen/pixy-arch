@@ -60,6 +60,7 @@ def test_video_input_command_maps_v4l2_formats_to_ffmpeg() -> None:
     assert command == [
         "ffmpeg",
         "-hide_banner",
+        "-nostdin",
         "-loglevel",
         "error",
         "-f",
@@ -342,7 +343,7 @@ async def test_start_recording_slugifies_device_name_in_filename(monkeypatch, tm
 
     assert status.path is not None
     filename = status.path.rsplit("/", 1)[-1]
-    assert filename.startswith("pixypilot-EMEET-PIXY-EMEET-PIXY-")
+    assert filename.startswith("pixy-arch-EMEET-PIXY-EMEET-PIXY-")
     assert ":" not in filename and " " not in filename
 
 
@@ -499,3 +500,214 @@ async def test_loopback_substitute_passes_through_when_virtualcam_idle(tmp_path)
     device, settings = await _loopback_substitute("/dev/video0", FakeVcam())
     assert device == "/dev/video0"
     assert settings is None
+
+
+def _mjpg_settings() -> VideoStreamSettings:
+    return VideoStreamSettings(pixel_format="MJPG", width=1280, height=720, fps=30)
+
+
+async def test_concurrent_recording_starts_spawn_one_ffmpeg(monkeypatch, tmp_path) -> None:
+    spawned: list[FakeProcess] = []
+    release = asyncio.Event()
+
+    async def slow_exec(*args, **kwargs):
+        # Yield mid-start so a second start could slip past the running check.
+        await release.wait()
+        process = FakeProcess()
+        spawned.append(process)
+        return process
+
+    async def fast_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(video_service_module.asyncio, "create_subprocess_exec", slow_exec)
+    service = VideoService(tmp_path)
+    first = asyncio.create_task(service.start_recording("video0", "/dev/video0", _mjpg_settings()))
+    second = asyncio.create_task(service.start_recording("video0", "/dev/video0", _mjpg_settings()))
+    await asyncio.sleep(0.01)
+    monkeypatch.setattr(video_service_module.asyncio, "sleep", fast_sleep)
+    release.set()
+    results = await asyncio.gather(first, second, return_exceptions=True)
+
+    assert len(spawned) == 1
+    assert sum(isinstance(result, ValueError) for result in results) == 1
+    assert "already running" in str(next(r for r in results if isinstance(r, ValueError)))
+    assert service._recording_process is spawned[0]  # noqa: SLF001
+
+
+async def test_recording_filename_has_millisecond_precision(monkeypatch, tmp_path) -> None:
+    import re
+
+    async def fake_exec(*args, **kwargs):
+        return FakeProcess()
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(video_service_module.asyncio, "create_subprocess_exec", fake_exec)
+    monkeypatch.setattr(video_service_module.asyncio, "sleep", no_sleep)
+    service = VideoService(tmp_path)
+
+    status = await service.start_recording("video0", "/dev/video0", _mjpg_settings())
+
+    assert re.fullmatch(r"pixy-arch-video0-\d{8}-\d{6}-\d{3}\.mkv", Path(status.path).name)
+
+
+async def test_device_fed_ffmpeg_spawns_never_inherit_stdin(monkeypatch, tmp_path) -> None:
+    calls: list[tuple[tuple, dict]] = []
+
+    async def fake_exec(*args, **kwargs):
+        calls.append((args, kwargs))
+        return FakeProcess()
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(video_service_module.asyncio, "create_subprocess_exec", fake_exec)
+    service = VideoService(tmp_path)
+
+    await service._start_ffmpeg_stream(  # noqa: SLF001
+        "/dev/video0", VideoStreamSettings(pixel_format="YUYV", width=640, height=480, fps=30)
+    )
+    # The stream reaper loops on asyncio.sleep: stop it before sleep is stubbed.
+    service._reaper_task.cancel()  # noqa: SLF001
+    monkeypatch.setattr(video_service_module.asyncio, "sleep", no_sleep)
+    await service.start_recording("video1", "/dev/video1", _mjpg_settings())
+
+    assert len(calls) == 2
+    for args, kwargs in calls:
+        assert "-nostdin" in args
+        assert kwargs["stdin"] == asyncio.subprocess.DEVNULL
+
+
+async def test_unwritable_recordings_dir_is_a_clean_error(monkeypatch, tmp_path) -> None:
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x", encoding="utf-8")
+    spawned: list[object] = []
+
+    async def fake_exec(*args, **kwargs):
+        spawned.append(args)
+        return FakeProcess()
+
+    monkeypatch.setattr(video_service_module.asyncio, "create_subprocess_exec", fake_exec)
+    service = VideoService(blocker / "recordings")
+
+    try:
+        await service.start_recording("video0", "/dev/video0", _mjpg_settings())
+    except ValueError as exc:
+        assert "not writable" in str(exc)
+    else:
+        raise AssertionError("start_recording should fail when the directory cannot be created")
+
+    assert spawned == []
+    assert service._recording_status.recording is False  # noqa: SLF001
+    assert "not writable" in (service._recording_status.reason or "")  # noqa: SLF001
+
+
+def test_recordings_dir_follows_config_changes(monkeypatch, tmp_path) -> None:
+    current = {"path": tmp_path / "first"}
+    monkeypatch.setattr(video_service_module, "recordings_dir", lambda: current["path"])
+    service = VideoService()
+
+    assert service.recordings_dir == tmp_path / "first"
+    current["path"] = tmp_path / "second"
+    assert service.recordings_dir == tmp_path / "second"
+
+
+async def test_native_capture_opened_after_first_frame_timeout_is_closed(monkeypatch, tmp_path) -> None:
+    import threading
+
+    open_started = threading.Event()
+    finish_open = threading.Event()
+    closed = threading.Event()
+
+    class SlowOpenCapture(FakeNativeCapture):
+        def open(self) -> None:
+            open_started.set()
+            finish_open.wait(5)
+
+        def close(self) -> None:
+            closed.set()
+
+    monkeypatch.setattr(video_service_module, "NativeMjpegCapture", SlowOpenCapture)
+    service = VideoService(tmp_path)
+    stream = service.mjpeg_stream("/dev/video0", _mjpg_settings())
+
+    try:
+        await asyncio.wait_for(stream.__anext__(), timeout=0.05)
+    except TimeoutError:
+        pass
+    else:
+        raise AssertionError("the first frame should time out while open() is stuck")
+    assert open_started.is_set()
+    assert not closed.is_set()
+
+    finish_open.set()
+    for _ in range(100):
+        if closed.is_set():
+            break
+        await asyncio.sleep(0.01)
+    assert closed.is_set()
+    assert service._native_streams == {}  # noqa: SLF001
+
+
+async def test_native_capture_setup_errors_end_stream_cleanly(monkeypatch, tmp_path) -> None:
+    import struct
+
+    for error in (RuntimeError("only 1 buffer"), struct.error("argument out of range")):
+
+        class BrokenCapture(FakeNativeCapture):
+            def open(self, error=error) -> None:
+                raise error
+
+        monkeypatch.setattr(video_service_module, "NativeMjpegCapture", BrokenCapture)
+        service = VideoService(tmp_path)
+
+        chunks = [chunk async for chunk in service.mjpeg_stream("/dev/video0", _mjpg_settings())]
+
+        assert chunks == []
+
+
+def _stream_app(video_service, vcam_status):
+    from fastapi import FastAPI
+
+    from pixypilot.api.routes import router
+    from pixypilot.domains.video.service import get_video_service
+    from pixypilot.domains.virtualcam.service import get_virtualcam_service
+
+    class FakeVcam:
+        async def status(self):
+            return vcam_status
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_video_service] = lambda: video_service
+    app.dependency_overrides[get_virtualcam_service] = lambda: FakeVcam()
+    return app
+
+
+async def test_stream_route_bounds_query_and_maps_setup_errors(monkeypatch, tmp_path) -> None:
+    import httpx
+
+    import pixypilot.api.routes as routes_module
+    from pixypilot.domains.virtualcam.models import VirtualCamStatus
+
+    class ExplodingVideoService:
+        async def mjpeg_stream(self, device_path, settings):
+            raise RuntimeError("V4L2 device only provided 1 streaming buffer(s)")
+            yield b""  # pragma: no cover
+
+    monkeypatch.setattr(routes_module.os.path, "exists", lambda _path: True)
+    app = _stream_app(ExplodingVideoService(), VirtualCamStatus(available=False))
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+        too_wide = await client.get("/api/devices/video0/stream", params={"width": 7681})
+        too_fast = await client.get("/api/devices/video0/stream", params={"fps": 240})
+        bad_interval = await client.get("/api/devices/video0/stream", params={"frame_interval_100ns": 1})
+        broken = await client.get("/api/devices/video0/stream")
+
+    assert too_wide.status_code == 422
+    assert too_fast.status_code == 422
+    assert bad_interval.status_code == 422
+    assert broken.status_code == 503
+    assert "streaming buffer" in broken.json()["detail"]

@@ -87,6 +87,22 @@ describe("useCommandLogFeed", () => {
     expect(messages).toContain("audio:mic muted");
   });
 
+  it("logs the privacy command outcome, including failures", () => {
+    const initial = sources();
+    const { rerender } = renderHook(
+      ({ sources: current }) => useCommandLogFeed(current),
+      { initialProps: { sources: initial } }
+    );
+
+    const failed = sources();
+    failed.privacySafety = { ...failed.privacySafety, privacyCommandState: "failed" };
+    rerender({ sources: failed });
+
+    const entry = getCommandLogEntries().find((item) => item.category === "safety");
+    expect(entry?.message).toBe("privacy command failed");
+    expect(entry?.tone).toBe("error");
+  });
+
   it("logs device list changes and errors", () => {
     const initial = sources();
     const { rerender } = renderHook(
@@ -220,24 +236,25 @@ function sources(): CommandLogSources {
       pending: false,
       error: null,
       refresh: async () => undefined,
-      setMuted: async () => undefined,
-      setVolume: async () => undefined,
-      setDefaultSource: async () => undefined,
-      setMonitorRunning: async () => undefined
+      setMuted: async () => true,
+      setVolume: async () => true,
+      setDefaultSource: async () => true,
+      setMonitorRunning: async () => true
     } as UseAudioResult,
     privacySafety: {
       settings: null,
       settingsLoaded: true,
       startupPrivacyEnabled: true,
-      startupPrivacyState: "sent",
+      startupPrivacyState: "enabled",
+      privacyCommandState: "idle",
       settingsError: null,
       settingsPending: false,
       refreshSettings: async () => undefined,
       saveSettings: async () => {
         throw new Error("not implemented");
       },
-      enterPrivacy: async () => undefined,
-      leavePrivacy: async () => undefined
+      enterPrivacy: async () => true,
+      leavePrivacy: async () => true
     } as UsePrivacySafetyResult
   };
 }

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -98,7 +98,8 @@ function makePrivacySafety(overrides: Partial<UsePrivacySafetyResult> = {}): Use
     settings: null,
     settingsLoaded: true,
     startupPrivacyEnabled: true,
-    startupPrivacyState: "sent",
+    startupPrivacyState: "enabled",
+    privacyCommandState: "idle",
     settingsError: null,
     settingsPending: false,
     refreshSettings: vi.fn(),
@@ -144,7 +145,36 @@ describe("SmartPixyPanel", () => {
     expect(screen.getByRole("button", { name: "Privacy" })).toBeEnabled();
     expect(screen.queryByText("Speaker Tracking")).not.toBeInTheDocument();
     expect(screen.queryByText("Capture needed")).not.toBeInTheDocument();
-    expect(screen.getByText("Startup privacy sent; mic mute requested")).toBeInTheDocument();
+    expect(screen.getByText("Lens closes and mic mutes whenever Pixy Arch starts")).toBeInTheDocument();
+  });
+
+  it("shows the outcome of the last privacy command instead of assuming success", () => {
+    const { rerender } = render(
+      <SmartPixyPanel
+        pixyHid={makePixyHid()}
+        audio={makeAudio()}
+        privacySafety={makePrivacySafety({ privacyCommandState: "failed" })}
+      />
+    );
+    expect(screen.getByText("Privacy command failed; press Privacy to retry")).toBeInTheDocument();
+
+    rerender(
+      <SmartPixyPanel
+        pixyHid={makePixyHid()}
+        audio={makeAudio()}
+        privacySafety={makePrivacySafety({ privacyCommandState: "mic-failed" })}
+      />
+    );
+    expect(screen.getByText("Privacy on, but the mic mute failed; check the mic")).toBeInTheDocument();
+
+    rerender(
+      <SmartPixyPanel
+        pixyHid={makePixyHid()}
+        audio={makeAudio()}
+        privacySafety={makePrivacySafety({ privacyCommandState: "applied" })}
+      />
+    );
+    expect(screen.getByText("Privacy on; mic muted")).toBeInTheDocument();
   });
 
   it("does not claim privacy is active when the refreshed HID state is unknown", () => {
@@ -193,7 +223,7 @@ describe("SmartPixyPanel", () => {
       />
     );
 
-    expect(screen.getByText("Non-privacy raw 3 bits 0,1")).toBeInTheDocument();
+    expect(screen.getByTitle("Raw value 3 · bits 0,1")).toHaveTextContent("Non-privacy");
     expect(screen.getByRole("button", { name: "Tracking" })).toHaveClass("is-selected");
   });
 
@@ -221,11 +251,11 @@ describe("SmartPixyPanel", () => {
       />
     );
 
-    expect(screen.getByText("Tracking raw 1 bits 0")).toBeInTheDocument();
+    expect(screen.getByTitle("Raw value 1 · bits 0")).toHaveTextContent("Tracking");
     expect(screen.getByRole("button", { name: "Tracking" })).toHaveClass("is-selected");
-    expect(screen.getByText("Tracking mode is active. Focus target selection is handled in Focus Control: Center, Face, or Region.")).toBeInTheDocument();
+    expect(screen.getByText("Tracking is on. Choose the focus target (Center, Face or Region) in the Focus panel.")).toBeInTheDocument();
     // Target tracking lives in Advanced and stays collapsed by default.
-    expect(screen.queryByText("Tracking Target")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tracking target")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Half body" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Full body" })).not.toBeInTheDocument();
   });
@@ -253,10 +283,10 @@ describe("SmartPixyPanel", () => {
       />
     );
 
-    expect(screen.getByText("Standard raw 0")).toBeInTheDocument();
+    expect(screen.getByTitle("Raw value 0")).toHaveTextContent("Standard");
     expect(screen.getByRole("button", { name: "Standard" })).toHaveClass("is-selected");
-    expect(screen.getByText("Device reports Standard mode. Select Tracking for auto follow, or use Focus Control for Center, Face, or Region metering.")).toBeInTheDocument();
-    expect(screen.queryByText("Tracking Target")).not.toBeInTheDocument();
+    expect(screen.getByText("Standard mode. Select Tracking for auto follow, or use the Focus panel for Center, Face or Region metering.")).toBeInTheDocument();
+    expect(screen.queryByText("Tracking target")).not.toBeInTheDocument();
   });
 
   it("selects the proven tracking control mode", async () => {
@@ -758,5 +788,65 @@ describe("SmartPixyPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Go" }));
     expect(sendPtzAbsolute).toHaveBeenCalledWith(0, 0);
+  });
+
+  it("keeps the mic gain slider live while dragging and commits once on release", () => {
+    const setVolume = vi.fn().mockResolvedValue(true);
+    render(
+      <SmartPixyPanel
+        pixyHid={makePixyHid()}
+        audio={makeAudio({ setVolume, pending: true })}
+        privacySafety={makePrivacySafety()}
+      />
+    );
+
+    const gain = screen.getByRole("slider", { name: "Mic gain" });
+    // A pending audio command must not disable the slider mid-drag.
+    expect(gain).toBeEnabled();
+
+    fireEvent.change(gain, { target: { value: "35" } });
+    fireEvent.change(gain, { target: { value: "42" } });
+    expect(setVolume).not.toHaveBeenCalled();
+    expect(gain).toHaveValue("42");
+    expect(screen.getByText("Gain 42")).toBeInTheDocument();
+
+    fireEvent.pointerUp(gain);
+    expect(setVolume).toHaveBeenCalledTimes(1);
+    expect(setVolume).toHaveBeenCalledWith(42);
+
+    fireEvent.blur(gain);
+    expect(setVolume).toHaveBeenCalledTimes(1);
+  });
+
+  it("commits keyboard gain changes on key release", () => {
+    const setVolume = vi.fn().mockResolvedValue(true);
+    render(<SmartPixyPanel pixyHid={makePixyHid()} audio={makeAudio({ setVolume })} privacySafety={makePrivacySafety()} />);
+
+    const gain = screen.getByRole("slider", { name: "Mic gain" });
+    fireEvent.change(gain, { target: { value: "11" } });
+    fireEvent.keyUp(gain, { key: "ArrowRight" });
+
+    expect(setVolume).toHaveBeenCalledWith(11);
+  });
+
+  it("exposes segmented selections as pressed toggle buttons and names its inputs", async () => {
+    const user = userEvent.setup();
+    render(
+      <SmartPixyPanel
+        pixyHid={writablePixyHid({ trackingMode: "tracking", audioMode: "live", autoPrivacySeconds: 60 })}
+        audio={makeAudio()}
+        privacySafety={makePrivacySafety()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Tracking" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Standard" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Live" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "1m" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("spinbutton", { name: "Auto-privacy delay in seconds" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Advanced" }));
+    expect(screen.getByRole("slider", { name: "Pan motor speed" })).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "Tilt motor speed" })).toBeInTheDocument();
   });
 });

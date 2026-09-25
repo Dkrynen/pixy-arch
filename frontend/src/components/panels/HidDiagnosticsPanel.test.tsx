@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { capturePixyHidDiagnostics, fetchPixyHidQuery } from "../../lib/apiClient";
 import type { PixyHidDiagnosticSnapshot } from "../../types/api";
-import { HidDiagnosticsPanel } from "./HidDiagnosticsPanel";
+import { HidDiagnosticsPanel, hidSnapshotFileName } from "./HidDiagnosticsPanel";
 
 vi.mock("../../lib/apiClient", () => ({
   capturePixyHidDiagnostics: vi.fn(),
@@ -36,6 +36,11 @@ function snapshot(filePath: string | null = null): PixyHidDiagnosticSnapshot {
 }
 
 describe("HidDiagnosticsPanel", () => {
+  it("names downloaded snapshots with the Pixy Arch prefix", () => {
+    expect(hidSnapshotFileName("2026-06-10T12:00:00+00:00")).toBe("pixy-arch-hid-2026-06-10T1200000000.json");
+    expect(hidSnapshotFileName(undefined)).toBe("pixy-arch-hid-snapshot.json");
+  });
+
   beforeEach(() => {
     captureMock.mockReset();
     queryMock.mockReset();
@@ -58,14 +63,14 @@ describe("HidDiagnosticsPanel", () => {
 
   it("saves a diagnostic snapshot through the backend", async () => {
     const user = userEvent.setup();
-    captureMock.mockResolvedValue(snapshot("/FastDrive/EmmetPixy/diagnostics/hid/pixypilot-hid-test.json"));
+    captureMock.mockResolvedValue(snapshot("/home/user/pixy-arch/diagnostics/hid/pixy-arch-hid-test.json"));
 
     render(<HidDiagnosticsPanel />);
 
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
     expect(captureMock).toHaveBeenCalledWith(true);
-    expect(await screen.findByText(/diagnostics\/hid\/pixypilot-hid-test\.json/)).toBeInTheDocument();
+    expect(await screen.findByText(/diagnostics\/hid\/pixy-arch-hid-test\.json/)).toBeInTheDocument();
   });
 
   it("runs a single HID query through the explorer and decodes it", async () => {

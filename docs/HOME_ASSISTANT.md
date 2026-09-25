@@ -1,6 +1,8 @@
 # Home Assistant Integration Plan
 
-PixyPilot is a strong fit for Home Assistant because it turns the EMEET PIXY into a locally controlled PTZ camera device that can participate in automations, scenes, dashboards, and privacy routines.
+> **Status: planned, not implemented.** This is a design sketch; no Home Assistant integration ships with Pixy Arch yet. The REST API it would use already exists.
+
+Pixy Arch is a strong fit for Home Assistant because it turns the EMEET PIXY into a locally controlled PTZ camera device that can participate in automations, scenes, dashboards, and privacy routines.
 
 The target user experience should be simple:
 
@@ -12,7 +14,7 @@ data:
 
 ## Why This Matters
 
-The Home Assistant audience is much larger than the EMEET PIXY audience. A custom integration gives PixyPilot another discovery path for searches like:
+The Home Assistant audience is much larger than the EMEET PIXY audience. A custom integration gives Pixy Arch another discovery path for searches like:
 
 - Home Assistant EMEET PIXY
 - Home Assistant PTZ camera control
@@ -38,7 +40,7 @@ Later, this can become a config-flow integration discovered through the Home Ass
 
 Recommended first entities:
 
-| Entity | Home Assistant platform | PixyPilot source |
+| Entity | Home Assistant platform | Pixy Arch source |
 | --- | --- | --- |
 | `camera.pixypilot` | `camera` | MJPEG stream endpoint |
 | `switch.pixypilot_privacy` | `switch` | HID tracking/privacy command |
@@ -55,7 +57,7 @@ PTZ absolute controls can be exposed as numbers later, but the first Home Assist
 
 ### `pixypilot.preset`
 
-Apply a named PixyPilot preset.
+Apply a named Pixy Arch preset.
 
 ```yaml
 service: pixypilot.preset
@@ -76,10 +78,10 @@ Recommended behavior:
 
 - If `scope` is omitted, find the preset by name across image, focus, exposure, and PTZ presets.
 - If multiple presets share the same name, require `scope`.
-- Apply all controls in the preset using PixyPilot's API.
+- Apply all controls in the preset using Pixy Arch's API.
 - Return a clear error if the preset is unknown.
 
-Backend gap to close: PixyPilot currently stores image/focus/exposure presets and the frontend applies them client-side by writing individual V4L2 controls. For Home Assistant, add a backend endpoint such as:
+Backend gap to close: Pixy Arch currently stores image/focus/exposure presets and the frontend applies them client-side by writing individual V4L2 controls. For Home Assistant, add a backend endpoint such as:
 
 ```http
 POST /api/control-presets/apply
@@ -131,7 +133,7 @@ Recommended behavior:
 
 - `enabled: true` sends HID privacy mode.
 - `enabled: false` sends HID tracking/off state.
-- When privacy is enabled, PixyPilot should also mute the microphone.
+- When privacy is enabled, Pixy Arch should also mute the microphone.
 - Disabling privacy should not automatically unmute the microphone unless the user explicitly asks for that behavior.
 
 ### `pixypilot.auto_follow`

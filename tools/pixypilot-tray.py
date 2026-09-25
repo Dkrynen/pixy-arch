@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Small optional Linux tray controller for PixyPilot.
+"""Small optional Linux tray controller for Pixy Arch.
 
-Install optional dependencies with:
-  python3 -m pip install pystray pillow
+Install its dependencies from your distro (see docs/TRAY_APP.md), e.g.:
+  sudo apt install python3-pystray python3-pil python3-yaml
 
 Run with:
   tools/pixypilot-tray.py
@@ -22,7 +22,7 @@ try:
     from PIL import Image, ImageDraw
 except ImportError as exc:
     raise SystemExit(
-        "PixyPilot tray requires optional packages: python3 -m pip install pystray pillow"
+        "The Pixy Arch tray needs pystray and Pillow; see docs/TRAY_APP.md for the packages to install."
     ) from exc
 
 try:

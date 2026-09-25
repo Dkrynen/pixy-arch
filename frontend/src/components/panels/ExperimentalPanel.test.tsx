@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { captureUvcExtensionSnapshot } from "../../lib/apiClient";
 import type { UvcExtensionSnapshot } from "../../types/api";
-import { ExperimentalPanel } from "./ExperimentalPanel";
+import { ExperimentalPanel, uvcSnapshotFileName } from "./ExperimentalPanel";
 
 vi.mock("../../lib/apiClient", () => ({
   captureUvcExtensionSnapshot: vi.fn()
@@ -18,7 +18,7 @@ function snapshot(filePath: string | null = null): UvcExtensionSnapshot {
     device_path: "/dev/video0",
     unit_id: 2,
     file_path: filePath,
-    previous_file_path: "/FastDrive/EmmetPixy/diagnostics/uvc/pixypilot-uvc-video0-baseline.json",
+    previous_file_path: "/home/user/pixy-arch/diagnostics/uvc/pixy-arch-uvc-video0-baseline.json",
     changed_selectors: [1],
     selectors: [
       {
@@ -51,6 +51,13 @@ function snapshot(filePath: string | null = null): UvcExtensionSnapshot {
 }
 
 describe("ExperimentalPanel", () => {
+  it("names downloaded snapshots with the Pixy Arch prefix", () => {
+    expect(uvcSnapshotFileName("video0", "2026-06-10T12:00:00+00:00")).toBe(
+      "pixy-arch-uvc-video0-2026-06-10T1200000000.json"
+    );
+    expect(uvcSnapshotFileName(null, null)).toBe("pixy-arch-uvc-device-snapshot.json");
+  });
+
   beforeEach(() => {
     captureMock.mockReset();
   });
@@ -77,13 +84,13 @@ describe("ExperimentalPanel", () => {
 
   it("saves UVC snapshots through the backend", async () => {
     const user = userEvent.setup();
-    captureMock.mockResolvedValue(snapshot("/FastDrive/EmmetPixy/diagnostics/uvc/pixypilot-uvc-video0-test.json"));
+    captureMock.mockResolvedValue(snapshot("/home/user/pixy-arch/diagnostics/uvc/pixy-arch-uvc-video0-test.json"));
 
     render(<ExperimentalPanel deviceName="video0" />);
 
     await user.click(screen.getByRole("button", { name: /^save$/i }));
 
     expect(captureMock).toHaveBeenCalledWith("video0", true);
-    expect(await screen.findByText(/diagnostics\/uvc\/pixypilot-uvc-video0-test\.json/)).toBeInTheDocument();
+    expect(await screen.findByText(/diagnostics\/uvc\/pixy-arch-uvc-video0-test\.json/)).toBeInTheDocument();
   });
 });

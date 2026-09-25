@@ -1,6 +1,6 @@
 # EMEET PIXY Packet Capture And HID Reference
 
-This document is the compact reference for the EMEET PIXY captures and decoded HID commands used by PixyPilot. The longer narrative is in [EMEET_PIXY_REVERSE_ENGINEERING.md](EMEET_PIXY_REVERSE_ENGINEERING.md).
+This document is the compact reference for the EMEET PIXY captures and decoded HID commands used by Pixy Arch. The longer narrative is in [EMEET_PIXY_REVERSE_ENGINEERING.md](EMEET_PIXY_REVERSE_ENGINEERING.md).
 
 Unless noted otherwise, HID reports are 32 bytes, start with report ID `09`, and are padded with trailing `00` bytes to 32 bytes.
 
@@ -53,19 +53,19 @@ https://github.com/LarsArtmann/emeet-pixyd
 
 Relevant findings:
 
-- It independently confirms the same core HID groups PixyPilot already uses for tracking/privacy (`01`), gesture (`04`), and audio DSP mode (`05`).
-- It uses the same 9-byte config reports and 4-byte commit/query reports that PixyPilot captured from EMEET Studio.
-- It waits roughly `200ms` between the config report and commit report for the core tracking/audio/gesture commands. PixyPilot currently keeps the HID report gap configurable through `hid.report_gap_ms` and defaults to a lower-latency value.
-- It implements HID state queries and response parsing for tracking, audio, and gesture. PixyPilot now has a backend state-query endpoint based on the same query reports.
-- It does not appear to include the later PixyPilot-specific captures for focus/metering selected area, mirror/flip, auto-rotate, auto-privacy delay, HID PTZ vector movement, or native PTZ preset save/load.
+- It independently confirms the same core HID groups Pixy Arch already uses for tracking/privacy (`01`), gesture (`04`), and audio DSP mode (`05`).
+- It uses the same 9-byte config reports and 4-byte commit/query reports that Pixy Arch captured from EMEET Studio.
+- It waits roughly `200ms` between the config report and commit report for the core tracking/audio/gesture commands. Pixy Arch currently keeps the HID report gap configurable through `hid.report_gap_ms` and defaults to a lower-latency value.
+- It implements HID state queries and response parsing for tracking, audio, and gesture. Pixy Arch now has a backend state-query endpoint based on the same query reports.
+- It does not appear to include the later Pixy Arch-specific captures for focus/metering selected area, mirror/flip, auto-rotate, auto-privacy delay, HID PTZ vector movement, or native PTZ preset save/load.
 
-Live PixyPilot check on the connected camera:
+Live Pixy Arch check on the connected camera:
 
 - Audio query `09 05 00 04` decoded successfully.
 - Gesture query `09 04 02 01 00 01 00 01 02` decoded successfully.
-- Tracking query `09 01 01 01` returned group `01` value `03`, which remains unresolved. PixyPilot intentionally does not map `03` to Standard, Tracking, or Privacy until a capture proves the meaning.
+- Tracking query `09 01 01 01` returned group `01` value `03`, which remains unresolved. Pixy Arch intentionally does not map `03` to Standard, Tracking, or Privacy until a capture proves the meaning.
 
-PixyPilot endpoint:
+Pixy Arch endpoint:
 
 ```text
 GET /api/pixy-hid/state
@@ -77,7 +77,7 @@ POST /api/pixy-hid/diagnostics/capture?save=true
 
 These endpoints are read-only and return decoded fields when the camera response is known. They also return raw value bytes, set-bit indexes, full request/response hex, and an ASCII preview so unresolved responses can be documented without guessing.
 
-The web UI exposes the same flow in the `HID Diagnostics` panel:
+The web UI exposes the same flow in the `HID diagnostics` panel (Diagnostics view):
 
 - `Capture` reads the current whitelisted queries and displays them in the page.
 - `Save` reads the same queries and writes a timestamped JSON snapshot under `diagnostics/hid/`.
@@ -85,7 +85,7 @@ The web UI exposes the same flow in the `HID Diagnostics` panel:
 - `Download` saves the current snapshot through the browser.
 - `ASCII` shows a printable response preview. Binary/control bytes are rendered as `.` so text fragments such as device/build identifiers stand out.
 
-PixyPilot also appends a rolling HID trace to:
+Pixy Arch also appends a rolling HID trace to:
 
 ```text
 diagnostics/hid/pixypilot-hid-trace.jsonl
@@ -105,13 +105,13 @@ Relevant findings:
 
 - It independently controls the PIXY over macOS IOKit HID, with no EMEET binaries.
 - It identifies the PIXY USB ID as VID `0x328f`, PID `0x00c0`.
-- It prefers the HID interface whose usage page and usage are both `0x83`. PixyPilot now prefers Linux hidraw nodes whose report descriptor advertises the same usage pair.
-- It masks the response group byte with `0x1f` before matching HID responses. PixyPilot now does the same in decoded response parsing.
+- It prefers the HID interface whose usage page and usage are both `0x83`. Pixy Arch now prefers Linux hidraw nodes whose report descriptor advertises the same usage pair.
+- It masks the response group byte with `0x1f` before matching HID responses. Pixy Arch now does the same in decoded response parsing.
 - It documents target-tracking modes through group `04`, command `01`: off, face, half-body, and full-body.
 - It documents degree-based PTZ relative and absolute motor commands through group `03`, commands `19` and `18`.
 - Its README notes that AI tracking visibly follows only while another app has the camera video stream open.
 
-PixyPilot keeps the EMEET Studio preset-load command separate from PixyBar's absolute motor command. Both use header `09 03 01 18`, but the payload length differs: one-byte slot loads use `00 01 00 01 SS`, while absolute motor positioning uses `00 05 00 05 AX` plus a float32 degree value.
+Pixy Arch keeps the EMEET Studio preset-load command separate from PixyBar's absolute motor command. Both use header `09 03 01 18`, but the payload length differs: one-byte slot loads use `00 01 00 01 SS`, while absolute motor positioning uses `00 05 00 05 AX` plus a float32 degree value.
 
 ## Cross-Check: nick0413/Emeet_pixy_for_linux
 
@@ -122,10 +122,10 @@ https://github.com/nick0413/Emeet_pixy_for_linux
 Relevant findings:
 
 - It is a small Tkinter UI plus shell helper that wraps `v4l2-ctl` and direct hidraw writes.
-- It independently confirms the same HID tracking/privacy, gesture, audio mode, and auto-privacy command families already implemented by PixyPilot.
+- It independently confirms the same HID tracking/privacy, gesture, audio mode, and auto-privacy command families already implemented by Pixy Arch.
 - It uses standard V4L2 controls for PTZ, zoom, image controls, focus, exposure, and anti-flicker.
 - It does not include decoded vendor UVC Extension Unit selectors.
-- Its UI makes auto/manual parent controls prominent beside dependent sliders. PixyPilot now mirrors that lesson by showing explicit unlock actions for inactive exposure, white-balance, and focus controls.
+- Its UI makes auto/manual parent controls prominent beside dependent sliders. Pixy Arch now mirrors that lesson by showing explicit unlock actions for inactive exposure, white-balance, and focus controls.
 
 Whitelisted diagnostic query names:
 
@@ -159,7 +159,7 @@ Live check on 2026-06-10 after adding diagnostic locking:
 | `auto_privacy_state` | `09 02 01 01 00 04 00 04 00 00 00 00 ...` | Timeout/status value `0` in this run. |
 | `focus_metering_state` | `09 04 00 02 00 05 00 05 00 38 38 7f 7f ...` | Mode byte `00`; selected-area default coordinates still visible in the response. |
 
-PixyPilot serializes HID read/write access and drains stale hidraw input before each diagnostic query. This is required because concurrent hidraw requests can otherwise read another request's response.
+Pixy Arch serializes HID read/write access and drains stale hidraw input before each diagnostic query. This is required because concurrent hidraw requests can otherwise read another request's response.
 
 ### Common Framing
 
@@ -183,9 +183,9 @@ Known fields:
 | `8..` | Group-specific payload. |
 | Remaining bytes | Zero padding to 32 bytes. |
 
-Some query/status reports are shorter, such as `09 01 01 01` and `09 05 00 04`. PixyPilot still pads them to 32 bytes when writing to hidraw.
+Some query/status reports are shorter, such as `09 01 01 01` and `09 05 00 04`. Pixy Arch still pads them to 32 bytes when writing to hidraw.
 
-Response matching caveat: some responses can set high bits in the group byte. PixyPilot compares response group as `response[1] & 0x1f` before decoding.
+Response matching caveat: some responses can set high bits in the group byte. Pixy Arch compares response group as `response[1] & 0x1f` before decoding.
 
 ### Group `01`: Tracking And Privacy
 
@@ -220,11 +220,11 @@ Important readback caveat: the command values above are confirmed for host-to-ca
 | `02` | Privacy |
 | `03` | Non-privacy; Standard vs Tracking unknown |
 
-PixyPilot decodes `00`, `01`, and `02` directly. Value `03` remains intentionally undecoded because it appears to be a combined or secondary status value rather than a clean Standard/Tracking/Privacy enum.
+Pixy Arch decodes `00`, `01`, and `02` directly. Value `03` remains intentionally undecoded because it appears to be a combined or secondary status value rather than a clean Standard/Tracking/Privacy enum.
 
 ### Group `04`: Target Tracking
 
-PixyBar identified a separate target-tracking family that sits under group `04`, command `01`. PixyPilot now exposes this as Target Tracking.
+PixyBar identified a separate target-tracking family that sits under group `04`, command `01`. Pixy Arch now exposes this as Target Tracking.
 
 Set target tracking:
 
@@ -247,7 +247,7 @@ Observed mode values from PixyBar and Linux HID probing:
 | `02` | Half-body |
 | `03` | Full-body |
 
-The three float32 little-endian values are normalized target parameters. PixyBar uses `0.5`, `0.5`, and `1.0` as defaults. EMEET Studio does not expose Face/Half/Full controls with these names, so PixyPilot keeps this command family as diagnostic/reverse-engineering data instead of presenting it as a confirmed main UI feature.
+The three float32 little-endian values are normalized target parameters. PixyBar uses `0.5`, `0.5`, and `1.0` as defaults. EMEET Studio does not expose Face/Half/Full controls with these names, so Pixy Arch keeps this command family as diagnostic/reverse-engineering data instead of presenting it as a confirmed main UI feature.
 
 Focused Linux test on 2026-06-11:
 
@@ -258,7 +258,7 @@ Focused Linux test on 2026-06-11:
 | Experimental target Half | `02` | Target readback became Half-body `02`. |
 | Experimental target Full | `03` | Target readback returned Face `01` on two attempts. Full-body is therefore not confirmed on the current Linux HID path/firmware. |
 
-For user-facing controls, PixyPilot maps the Windows Focus/Metering behavior to Focus Control: `Center`, `Face`, and `Region`. Region selection sends the confirmed selected-area focus command with X/Y coordinates and gives the preview a rectangular region overlay.
+For user-facing controls, Pixy Arch maps the Windows Focus/Metering behavior to the Focus panel: `Center`, `Face`, and `Region`. Region selection sends the confirmed selected-area focus command with X/Y coordinates and gives the preview a rectangular region overlay.
 
 ### Group `02`: Auto Privacy Delay
 
@@ -288,7 +288,7 @@ Capture `pcaps/30.pcapng` isolated Standard Mode plus Assistance-tab Auto-Enter 
 09 02 01 01
 ```
 
-No automatic privacy transition occurred in the capture. This means PixyPilot should not present the delay write as a working automatic privacy feature until the missing trigger condition is found.
+No automatic privacy transition occurred in the capture. This means Pixy Arch should not present the delay write as a working automatic privacy feature until the missing trigger condition is found.
 
 ### Group `03`: PTZ Presets
 
@@ -310,7 +310,7 @@ Load slot:
 09 03 01 18 00 01 00 01 SS
 ```
 
-`SS` is a 1-based preset slot. PixyPilot currently supports slots `01`, `02`, and `03`, matching the official app captures.
+`SS` is a 1-based preset slot. Pixy Arch currently supports slots `01`, `02`, and `03`, matching the official app captures.
 
 ### Group `03`: Degree-Based PTZ Motors
 
@@ -335,7 +335,7 @@ Known axis values:
 | `01` | Pan |
 | `02` | Tilt |
 
-For relative movement, PixyPilot uses the PixyBar sign mapping:
+For relative movement, Pixy Arch uses the PixyBar sign mapping:
 
 | Direction | Axis | Float delta |
 | --- | --- | ---: |
@@ -454,7 +454,7 @@ Query/status:
 
 Known mode values:
 
-| `XX` | EMEET Studio label | PixyPilot label |
+| `XX` | EMEET Studio label | Pixy Arch label |
 | --- | --- | --- |
 | `01` | NC | Noise cancel |
 | `02` | Live | Live |
@@ -494,13 +494,13 @@ The 12-byte payload is three little-endian float32 values: X, Y, Z. In the offic
 
 ## Confirmed Commands
 
-These are the commands PixyPilot currently treats as confirmed and implements.
+These are the commands Pixy Arch currently treats as confirmed and implements.
 
 | Feature | Report bytes | Values |
 | --- | --- | --- |
 | Standard Mode | `09 01 01 00 00 01 00 01 00` then `09 01 01 01` | Sets the Control tab mode to Standard/idle. |
 | Tracking Mode / Auto Follow | `09 01 01 00 00 01 00 01 01` then `09 01 01 01` | Enables tracking/follow state. |
-| Privacy Mode | `09 01 01 00 00 01 00 01 02` then `09 01 01 01` | Enters camera privacy state; observed to darken the image. PixyPilot also mutes the mic at the app layer when privacy is enabled. |
+| Privacy Mode | `09 01 01 00 00 01 00 01 02` then `09 01 01 01` | Enters camera privacy state; observed to darken the image. Pixy Arch also mutes the mic at the app layer when privacy is enabled. |
 | Auto privacy delay | `09 02 01 00 00 04 00 04 TT TT TT TT` then `09 02 01 01` | `TT` is little-endian seconds: Never `00 00 00 00`, 10s `0a 00 00 00`, 1m `3c 00 00 00`, 15m `84 03 00 00`. The write is confirmed, but the camera-side trigger condition is not confirmed. Treat as experimental. |
 | Gesture off/on | `09 04 02 00 00 02 00 02 02 XX` then `09 04 02 01 00 01 00 01 02` | `XX`: off `00`, on `01`. |
 | Auto Rotate off/on | `09 04 00 08 00 02 00 02 04 XX` then `09 04 00 07 00 01 00 01 04` | `XX`: off `00`, on `01`. |
@@ -508,7 +508,7 @@ These are the commands PixyPilot currently treats as confirmed and implements.
 | Vertical flip off/on | `09 04 00 08 00 02 00 02 02 XX` then `09 04 00 07 00 01 00 01 02` | `XX`: off `00`, on `01`. |
 | Focus on central areas | `09 04 00 01 00 05 00 05 00 00 00 7f 7f`, `09 04 00 03 00 05 00 05 00 00 00 7f 7f`, `09 04 00 02` | Focus/Metering mode `00`. |
 | Focus on human face | `09 04 00 01 00 05 00 05 01 00 00 7f 7f`, `09 04 00 03 00 05 00 05 01 00 00 7f 7f`, `09 04 00 02` | Focus/Metering mode `01`. |
-| Focus on selected area | `09 04 00 01 00 05 00 05 02 XX YY 7f 7f`, `09 04 00 03 00 05 00 05 02 XX YY 7f 7f`, `09 04 00 02` | `XX`/`YY` are selected-area coordinates. PixyPilot currently sends the captured center-ish `38 38` unless explicit coordinates are provided. |
+| Focus on selected area | `09 04 00 01 00 05 00 05 02 XX YY 7f 7f`, `09 04 00 03 00 05 00 05 02 XX YY 7f 7f`, `09 04 00 02` | `XX`/`YY` are selected-area coordinates. Pixy Arch currently sends the captured center-ish `38 38` unless explicit coordinates are provided. |
 | Audio NC | `09 05 00 03 00 01 00 01 01` then `09 05 00 04` | Noise cancellation mode. |
 | Audio Live | `09 05 00 03 00 01 00 01 02` then `09 05 00 04` | Live mode. |
 | Audio Original | `09 05 00 03 00 01 00 01 03` then `09 05 00 04` | Original mode. |
@@ -526,7 +526,7 @@ These official-app behaviors were captured and confirmed not to need HID command
 
 | Feature | Path |
 | --- | --- |
-| Video format picker | Standard UVC Probe/Commit; PixyPilot applies via native V4L2 `VIDIOC_S_FMT` and `VIDIOC_S_PARM`. |
+| Video format picker | Standard UVC Probe/Commit; Pixy Arch applies via native V4L2 `VIDIOC_S_FMT` and `VIDIOC_S_PARM`. |
 | Zoom far/near | Standard UVC `Zoom Absolute`; Linux V4L2 `zoom_absolute`, range `100..150`. |
 | AF/autofocus toggle | Standard UVC `Focus, Auto`; Linux V4L2 `focus_automatic_continuous`. |
 | Manual focus | Standard UVC `Focus Absolute`; Linux V4L2 `focus_absolute`. |
@@ -550,7 +550,7 @@ Focused resolution capture `pcaps/imports/2026-06-11T185619Z-c0ac17cbf7c0-32.pca
 
 Each resolution change stopped streaming on VideoStreaming interface alternate setting `0`, performed Probe/Commit, then restarted streaming on alternate setting `11`.
 
-PixyPilot handles this through Linux V4L2 rather than raw userspace USB. The `uvcvideo` kernel driver translates `VIDIOC_S_FMT` and `VIDIOC_S_PARM` calls on `/dev/videoN` into the UVC Probe/Commit USB control flow. PixyPilot preserves the enumerated frame interval in 100 ns units, uses that exact interval when setting preview/recording formats, and returns the driver's `VIDIOC_G_FMT`/`VIDIOC_G_PARM` readback after a format change.
+Pixy Arch handles this through Linux V4L2 rather than raw userspace USB. The `uvcvideo` kernel driver translates `VIDIOC_S_FMT` and `VIDIOC_S_PARM` calls on `/dev/videoN` into the UVC Probe/Commit USB control flow. Pixy Arch preserves the enumerated frame interval in 100 ns units, uses that exact interval when setting preview/recording formats, and returns the driver's `VIDIOC_G_FMT`/`VIDIOC_G_PARM` readback after a format change.
 
 ## Still Unknown
 

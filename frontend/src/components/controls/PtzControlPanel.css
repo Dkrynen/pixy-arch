@@ -1,54 +1,412 @@
-/* PtzControlPanel-only additions. Shared chrome lives in styles.css (P9). */
+/* PTZ panel. Stacks in the side column; spreads into pad | axes | presets
+   when its container is wide (single-column tablet layouts). */
+
+.ptz-panel {
+  container-type: inline-size;
+}
 
 .ptz-position {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  min-height: 22px;
-  margin-bottom: 4px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono);
+  gap: 8px;
+  min-width: 0;
+  margin-left: auto;
   font-size: 12px;
   line-height: 1.3;
+  white-space: nowrap;
 }
 
 .ptz-position-label {
   color: var(--text-3);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .ptz-position strong {
-  color: var(--accent);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  letter-spacing: 0.02em;
 }
 
 .ptz-position-reading {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: 12px;
 }
 
-/* Occupied preset slots get a corner pip so saved state is visible at a glance. */
+.ptz-deck {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+/* --- Joystick dial ------------------------------------------- */
+
+.ptz-pad {
+  position: relative;
+  justify-self: center;
+  width: min(100%, 216px);
+  aspect-ratio: 1;
+  margin-top: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.05)) center / 1px 58% no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.05)) center / 58% 1px no-repeat,
+    radial-gradient(circle at 50% 38%, #202026 0%, #17171b 55%, #111114 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -10px 30px rgba(0, 0, 0, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.ptz-pad::before {
+  content: "";
+  position: absolute;
+  inset: 21%;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.ptz-direction {
+  position: absolute;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text-2);
+  background: transparent;
+}
+
+.ptz-direction:hover:not(:disabled) {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ptz-direction:active:not(:disabled) {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+
+.ptz-up {
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.ptz-right {
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+}
+
+.ptz-down {
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.ptz-left {
+  top: 50%;
+  left: 6px;
+  transform: translateY(-50%);
+}
+
+.ptz-center {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  display: grid;
+  width: 68px;
+  height: 68px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-1);
+  background: linear-gradient(180deg, #2a2a31 0%, #1e1e23 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 4px 12px rgba(0, 0, 0, 0.45),
+    0 0 0 6px rgba(0, 0, 0, 0.18);
+  transform: translate(-50%, -50%);
+  touch-action: none;
+}
+
+.ptz-center:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+}
+
+.ptz-center svg {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.ptz-direction:disabled,
+.ptz-center:disabled {
+  opacity: 0.38;
+}
+
+.ptz-vector-puck {
+  position: absolute;
+  z-index: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* --- Axis sliders -------------------------------------------- */
+
+.ptz-axis-bank,
+.ptz-readouts {
+  display: grid;
+  align-content: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.ptz-axis {
+  display: grid;
+  grid-template-areas:
+    "label slider value"
+    ". scale .";
+  grid-template-columns: 3rem minmax(0, 1fr) 3.75rem;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: 1px;
+  min-width: 0;
+}
+
+.ptz-axis-header {
+  display: contents;
+}
+
+.ptz-axis-copy {
+  grid-area: label;
+  min-width: 0;
+}
+
+.ptz-axis-copy span {
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ptz-axis strong {
+  grid-area: value;
+  min-width: 0;
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ptz-axis-range {
+  grid-area: slider;
+}
+
+.ptz-axis-scale {
+  grid-area: scale;
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.ptz-axis.is-inactive,
+.ptz-axis.is-missing {
+  opacity: 0.55;
+}
+
+.ptz-axis.is-missing strong {
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+/* --- Presets ------------------------------------------------- */
+
+.ptz-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) 10px;
+  min-width: 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ptz-presets-label {
+  flex: 1 0 100%;
+}
+
+.ptz-preset-slots {
+  display: grid;
+  grid-template-columns: repeat(3, 36px);
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--tray);
+}
+
 .ptz-preset-slots button {
   position: relative;
+  height: var(--segment-h);
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--text-2);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
 }
 
+.ptz-preset-slots button:hover:not(:disabled):not(.is-selected) {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.ptz-preset-slots button.is-selected {
+  color: var(--text-1);
+  background: var(--surface-4);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+
+/* Occupied preset slots get a corner pip so saved state reads at a glance. */
 .ptz-preset-slots button.is-filled::after {
   content: "";
   position: absolute;
-  top: 5px;
-  right: 5px;
+  top: 4px;
+  right: 4px;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--accent);
 }
 
-.ptz-preset-slots button.is-filled.is-selected::after {
-  background: var(--accent-ink);
+.ptz-preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.ptz-preset-actions .secondary-button {
+  padding: 0 10px;
+}
+
+/* --- Footer: speed + home ------------------------------------ */
+
+.ptz-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ptz-speed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ptz-speed-buttons {
+  grid-template-columns: repeat(5, 32px);
+  grid-auto-flow: row;
+}
+
+.ptz-speed-buttons button {
+  padding: 0;
+  font-family: var(--font-mono);
+}
+
+.ptz-raw-controls {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Wide container: pad | axes | presets on one row. */
+@container (min-width: 640px) {
+  .ptz-deck {
+    grid-template-columns: 216px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-6);
+  }
+
+  .ptz-pad {
+    margin-top: 0;
+  }
+
+  .ptz-presets {
+    flex-direction: column;
+    align-items: stretch;
+    align-self: stretch;
+    justify-content: center;
+    padding-top: 0;
+    padding-left: var(--space-5);
+    border-top: 0;
+    border-left: 1px solid var(--border-subtle);
+  }
+
+  .ptz-presets-label {
+    flex: none;
+  }
+
+  .ptz-preset-actions {
+    flex-direction: column;
+    margin-left: 0;
+  }
+
+  .ptz-speed {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .ptz-footer {
+    align-items: center;
+  }
+
+  .ptz-raw-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: var(--space-8);
+  }
+}
+
+@media (max-width: 720px), (pointer: coarse) {
+  .ptz-preset-slots {
+    grid-template-columns: repeat(3, 44px);
+  }
+
+  .ptz-speed-buttons {
+    grid-template-columns: repeat(5, 40px);
+  }
 }

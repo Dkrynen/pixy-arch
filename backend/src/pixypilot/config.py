@@ -12,12 +12,22 @@ DEFAULT_BACKEND_PORT = 8000
 DEFAULT_FRONTEND_HOST = "127.0.0.1"
 DEFAULT_FRONTEND_PORT = 5173
 DEFAULT_HID_REPORT_GAP_MS = 25
+DEFAULT_VIRTUALCAM_LABEL = "Pixy Arch Virtual"
+# Card label used before the rename; a v4l2loopback module loaded with it
+# (older modprobe.d config) must still be recognised as our sink.
+LEGACY_VIRTUALCAM_LABEL = "PixyPilot Virtual"
+# Watch the EMEET PIXY capture node found via sysfs instead of a fixed path.
+AUTOMATION_AUTO_DEVICE = "auto"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "server": {
         "host": DEFAULT_BACKEND_HOST,
         "port": DEFAULT_BACKEND_PORT,
         "reload": False,
+        # Extra hostnames browsers may use to reach the API. IP addresses,
+        # localhost, and this machine's hostname are always accepted; "*"
+        # disables the check (only behind a trusted reverse proxy).
+        "allowed_hosts": [],
     },
     "frontend": {
         "dist": "frontend/dist",
@@ -39,7 +49,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "virtualcam": {
         "device": None,
-        "label": "PixyPilot Virtual",
+        "label": DEFAULT_VIRTUALCAM_LABEL,
         # Keep the sink managed from boot so OBS/browsers always see a
         # capture device — an idle v4l2loopback advertises output-only caps
         # and does not enumerate as a camera.
@@ -55,7 +65,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "automation": {
         "enabled": True,
-        "video_device": "/dev/video0",
+        "video_device": AUTOMATION_AUTO_DEVICE,
         "on_open": "tracking",
         "on_close": "privacy",
         "grace_seconds": 8,
@@ -76,9 +86,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 
 def project_root() -> Path:
+    # The user's config/pixypilot.yaml is untracked; a fresh checkout only has
+    # the shipped example, which marks the project root just as well.
     cwd = Path.cwd().resolve()
     for candidate in (cwd, *cwd.parents, _source_project_root()):
-        if (candidate / "config" / "pixypilot.yaml").exists():
+        config_dir = candidate / "config"
+        if (config_dir / "pixypilot.yaml").exists() or (config_dir / "pixypilot.example.yaml").exists():
             return candidate
     return _source_project_root()
 
@@ -104,6 +117,10 @@ def backend_port(config_path: Path | None = None) -> int:
 
 def reload_enabled(config_path: Path | None = None) -> bool:
     return _bool_at(["server", "reload"], False, config_path)
+
+
+def allowed_hosts(config_path: Path | None = None) -> list[str]:
+    return _list_at(["server", "allowed_hosts"], config_path)
 
 
 def frontend_host(config_path: Path | None = None) -> str:
@@ -140,6 +157,11 @@ def recordings_dir(config_path: Path | None = None) -> Path:
     return _path_at(["storage", "recordings"], Path("recordings"), config_path)
 
 
+def expand_config_path(raw_path: str, config_path: Path | None = None) -> Path:
+    """Resolve a path setting the same way the config readers do."""
+    return _resolve_path(Path(raw_path), config_path)
+
+
 def hid_path_override(config_path: Path | None = None) -> Path | None:
     raw_value = _value_at(["hid", "path"], config_path)
     if raw_value is None or raw_value == "":
@@ -164,7 +186,15 @@ def virtualcam_device(config_path: Path | None = None) -> Path | None:
 
 
 def virtualcam_label(config_path: Path | None = None) -> str:
-    return _string_at(["virtualcam", "label"], "PixyPilot Virtual", config_path)
+    return _string_at(["virtualcam", "label"], DEFAULT_VIRTUALCAM_LABEL, config_path)
+
+
+def virtualcam_labels(config_path: Path | None = None) -> list[str]:
+    """Card labels that identify our loopback sink: configured + legacy."""
+    labels = [virtualcam_label(config_path)]
+    if LEGACY_VIRTUALCAM_LABEL not in labels:
+        labels.append(LEGACY_VIRTUALCAM_LABEL)
+    return labels
 
 
 def virtualcam_autostart(config_path: Path | None = None) -> bool:
@@ -208,7 +238,7 @@ def _load_config_from_path(path_text: str) -> dict[str, Any]:
         elif isinstance(raw_config, dict):
             loaded = _string_keys(raw_config)
         else:
-            raise ValueError("PixyPilot config must be a YAML mapping")
+            raise ValueError(f"{path} must be a YAML mapping")
 
     return _deep_merge(DEFAULT_CONFIG, loaded)
 

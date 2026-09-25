@@ -113,6 +113,8 @@ def _patch_device_lookup(monkeypatch, tmp_path) -> tuple[Path, Path]:
     monkeypatch.setattr(vcam_module, "_find_loopback_device", lambda: sink)
     monkeypatch.setattr(vcam_module, "_find_source_device", lambda: source)
     monkeypatch.setattr(vcam_module, "_scan_sink_holders", lambda *_args, **_kwargs: (0, None))
+    # Standby frames go to the runtime dir: keep them inside the test's tmp.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     monkeypatch.setattr(vcam_module.asyncio, "to_thread", immediate_to_thread)
     monkeypatch.setattr(vcam_module.asyncio, "sleep", no_sleep)
     # The demand-watch loop sleeps via the patched asyncio.sleep, which would
@@ -684,3 +686,171 @@ def test_build_relay_record_command_reads_stdin() -> None:
     # Wall-clock timestamps keep playback speed honest when the camera's
     # real delivery rate drops below the requested fps in low light.
     assert command[command.index("-use_wallclock_as_timestamps") + 1] == "1"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"sink_device": "/etc/passwd"},
+        {"sink_device": "/home/user/.bashrc"},
+        {"source_device": "/dev/hidraw0"},
+        {"source_device": "/dev/video0\x00"},
+        {"output_width": 100000},
+        {"output_height": 8},
+        {"input_width": 5000},
+        {"input_fps": 0.5},
+        {"input_fps": 121},
+    ],
+)
+def test_start_request_rejects_unsafe_devices_and_sizes(overrides) -> None:
+    with pytest.raises(ValueError):
+        VirtualCamStartRequest(**overrides)
+
+
+def test_start_request_accepts_video_nodes_and_aliases(tmp_path) -> None:
+    alias = tmp_path / "by-id-pixy"
+    os.symlink("/dev/video2", alias)
+
+    request = VirtualCamStartRequest(source_device=str(alias), sink_device="/dev/video10")
+
+    assert request.source_device == str(alias)
+    assert request.sink_device == "/dev/video10"
+    assert VirtualCamStartRequest(source_device="", sink_device=None).source_device is None
+
+
+async def test_start_route_validates_before_arming(monkeypatch) -> None:
+    import httpx
+    from fastapi import FastAPI
+
+    from pixypilot.api.routes import router
+    from pixypilot.domains.virtualcam.service import get_virtualcam_service
+
+    service = VirtualCamService()
+    started: list[object] = []
+
+    async def fake_start(request):
+        started.append(request)
+
+    monkeypatch.setattr(service, "start", fake_start)
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_virtualcam_service] = lambda: service
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+        response = await client.post("/api/virtualcam/start", json={"sink_device": "/tmp/evil"})
+
+    assert response.status_code == 422
+    assert started == []
+    assert service._armed_request is None  # noqa: SLF001
+
+
+def _fake_sysfs(tmp_path: Path, nodes: dict[str, tuple[str, int]]) -> Path:
+    sysfs = tmp_path / "video4linux"
+    for node, (name, index) in nodes.items():
+        (sysfs / node).mkdir(parents=True)
+        (sysfs / node / "name").write_text(name + "\n", encoding="utf-8")
+        (sysfs / node / "index").write_text(f"{index}\n", encoding="utf-8")
+    return sysfs
+
+
+def _patch_sysfs(monkeypatch, sysfs: Path, caps: dict[str, tuple[str, bool] | None]) -> None:
+    monkeypatch.setattr(vcam_module, "VIDEO4LINUX_SYSFS", sysfs)
+    monkeypatch.setattr(vcam_module, "virtualcam_device", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        vcam_module, "virtualcam_labels", lambda *_a, **_k: ["Pixy Arch Virtual", "PixyPilot Virtual"]
+    )
+    monkeypatch.setattr(vcam_module, "_query_capabilities", lambda device: caps.get(device.name))
+
+
+def test_find_source_device_skips_loopback_and_metadata_nodes(monkeypatch, tmp_path) -> None:
+    sysfs = _fake_sysfs(
+        tmp_path,
+        {
+            # Lexically first, and "pixy" is in the sink's label: never pick it.
+            "video10": ("PixyPilot Virtual", 0),
+            "video11": ("Pixy Arch Virtual", 0),
+            "video2": ("EMEET PIXY: EMEET PIXY", 0),
+            "video3": ("EMEET PIXY: EMEET PIXY", 1),
+            "video0": ("Integrated Camera", 0),
+        },
+    )
+    _patch_sysfs(
+        monkeypatch,
+        sysfs,
+        {
+            "video10": ("v4l2 loopback", True),
+            "video11": ("v4l2 loopback", True),
+            "video2": ("uvcvideo", True),
+            "video3": ("uvcvideo", False),
+            "video0": ("uvcvideo", True),
+        },
+    )
+
+    assert vcam_module._find_source_device() == Path("/dev/video2")  # noqa: SLF001
+
+
+def test_find_source_device_orders_nodes_numerically(monkeypatch, tmp_path) -> None:
+    # Lexical order would try video10 before video2.
+    sysfs = _fake_sysfs(tmp_path, {"video10": ("EMEET PIXY", 0), "video2": ("EMEET PIXY", 0)})
+    _patch_sysfs(monkeypatch, sysfs, {"video10": ("uvcvideo", True), "video2": ("uvcvideo", True)})
+
+    assert vcam_module._find_source_device() == Path("/dev/video2")  # noqa: SLF001
+
+
+def test_find_source_device_falls_back_to_sysfs_index_when_unopenable(monkeypatch, tmp_path) -> None:
+    sysfs = _fake_sysfs(tmp_path, {"video4": ("EMEET PIXY", 1), "video5": ("EMEET PIXY", 0)})
+    _patch_sysfs(monkeypatch, sysfs, {})
+
+    assert vcam_module._find_source_device() == Path("/dev/video5")  # noqa: SLF001
+
+
+def test_find_source_device_returns_none_without_pixy(monkeypatch, tmp_path) -> None:
+    sysfs = _fake_sysfs(tmp_path, {"video0": ("Integrated Camera", 0), "video10": ("Pixy Arch Virtual", 0)})
+    _patch_sysfs(monkeypatch, sysfs, {"video0": ("uvcvideo", True), "video10": ("v4l2 loopback", True)})
+
+    assert vcam_module._find_source_device() is None  # noqa: SLF001
+
+
+@pytest.mark.parametrize("label", ["Pixy Arch Virtual", "PixyPilot Virtual"])
+def test_find_loopback_device_accepts_current_and_legacy_label(monkeypatch, tmp_path, label) -> None:
+    sysfs = _fake_sysfs(tmp_path, {"video2": ("EMEET PIXY", 0), "video10": (label, 0)})
+    _patch_sysfs(monkeypatch, sysfs, {})
+
+    assert vcam_module._find_loopback_device() == Path("/dev/video10")  # noqa: SLF001
+
+
+def test_pipeline_commands_never_read_stdin() -> None:
+    command = build_ffmpeg_command(VirtualCamStartRequest(), "/dev/video2", "/dev/video10")
+    standby = build_standby_command(1920, 1080, 5.0, "/run/frame.yuyv", "/dev/video10")
+    assert "-nostdin" in command
+    assert "-nostdin" in standby
+
+
+async def test_standby_frame_lives_in_private_runtime_dir_and_is_built_off_loop(
+    monkeypatch, tmp_path
+) -> None:
+    _patch_device_lookup(monkeypatch, tmp_path)
+    offloaded: list[str] = []
+
+    async def recording_to_thread(func, /, *args, **kwargs):
+        offloaded.append(func.__name__)
+        return func(*args, **kwargs)
+
+    async def fake_exec(*args, **kwargs):
+        return FakeProcess()
+
+    monkeypatch.setattr(vcam_module.asyncio, "to_thread", recording_to_thread)
+    monkeypatch.setattr(vcam_module.asyncio, "create_subprocess_exec", fake_exec)
+    service = VirtualCamService()
+
+    result = await service.arm(VirtualCamStartRequest(output_width=64, output_height=32))
+
+    assert result.ok is True
+    frame = Path(service._idle_frame_path)  # noqa: SLF001
+    assert frame.parent == tmp_path / "pixypilot"
+    assert (frame.parent.stat().st_mode & 0o777) == 0o700
+    assert frame.stat().st_size == 64 * 32 * 2
+    assert "_write_standby_frame" in offloaded
+    await service.stop()
+    assert not frame.exists()

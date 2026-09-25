@@ -1,38 +1,45 @@
-/* PcapImportPanel-only styles. Extends the shared .pcap-* classes in
-   styles.css with the drop-target state and source picker. */
+/* PcapImportPanel-only styles: drop-target state and source picker. */
 
-.pcap-upload-card.is-dragover {
-  outline: 1px dashed var(--accent);
-  outline-offset: 4px;
-  border-radius: 8px;
+.pcap-upload-card.is-dragover .pcap-file-picker {
+  border-color: var(--accent);
+  color: var(--text-1);
   background: var(--accent-soft);
 }
 
+.pcap-upload-card .diagnostic-actions {
+  margin-bottom: 0;
+}
+
 .pcap-source-select {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: inherit;
-  font-size: 0.72rem;
-  padding: 4px 6px;
+  flex: 1 1 110px;
+  max-width: 160px;
   text-transform: capitalize;
 }
 
-.pcap-source-select:focus-visible {
-  outline: 2px solid var(--accent, #7ab8ff);
-  outline-offset: 1px;
-}
-
 .pcap-import-more {
-  font-size: 0.72rem;
-  opacity: 0.55;
+  padding: 8px 0 0;
+  color: var(--text-3);
+  font-size: 12px;
   text-align: center;
-  padding: 4px 0;
 }
 
-/* Row gains a third grid column for the delete button (overrides the shared
-   2-column row grid in styles.css via the panel-scoped selector). */
+/* Row gains a third grid column for the delete button. */
 .pcap-import-panel .pcap-import-row {
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
+}
+
+.pcap-delete-button {
+  width: 28px;
+  height: 28px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 720px), (pointer: coarse) {
+  .pcap-delete-button {
+    width: 40px;
+    height: 40px;
+  }
 }

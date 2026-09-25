@@ -1,8 +1,10 @@
 # EMEET PIXY Linux Reverse Engineering
 
-This document records what PixyPilot has learned about the EMEET PIXY camera so other Linux users can benefit from the work. It separates confirmed behavior from working hypotheses. Do not write arbitrary values to vendor controls unless the command has been correlated with official app behavior or tested safely.
+This document records what this project has learned about the EMEET PIXY camera (much of it from the original PixyPilot work by Romonaga) so other Linux users can benefit from the work. It separates confirmed behavior from working hypotheses. Do not write arbitrary values to vendor controls unless the command has been correlated with official app behavior or tested safely.
 
 For a compact packet-capture index, HID report layouts, and confirmed command catalog, see [EMEET_PIXY_HID_REFERENCE.md](EMEET_PIXY_HID_REFERENCE.md).
+
+References to `pcaps/*.pcapng` files point to local captures that are not committed to git (they can contain device identifiers); the decoded results are recorded here.
 
 ## Device Identity
 
@@ -23,29 +25,29 @@ The PIXY currently exposes several useful control paths.
 
 | Path | Status | Purpose |
 | --- | --- | --- |
-| V4L2/UVC | Confirmed | Standard image, focus, exposure, PTZ, and format controls. PixyPilot uses native Linux V4L2 ioctls for inspection, enumeration, control writes, and format switching. |
+| V4L2/UVC | Confirmed | Standard image, focus, exposure, PTZ, and format controls. Pixy Arch uses native Linux V4L2 ioctls for inspection, enumeration, control writes, and format switching. |
 | ALSA | Confirmed | Microphone mute and microphone capture volume |
 | Vendor HID | Partially decoded | Smart features, focus metering, mirror/rotate, PTZ jog/vector movement, native PTZ presets, privacy, gesture, and audio DSP modes |
 | UVC Extension Unit | Present, not decoded | Ten vendor selectors exposed through UVC, names still unknown |
 
 ## Related Linux Work
 
-PixyPilot has been cross-checked against these public EMEET PIXY references:
+Pixy Arch has been cross-checked against these public EMEET PIXY references:
 
 - `rm1138` gist: early HID/V4L2 notes that helped identify the device's two main Linux control paths.
 - `LarsArtmann/emeet-pixyd`: a Go daemon focused on automatic call detection, tracking/privacy automation, audio switching, and an HTMX web UI.
 - `RoseWaveStudio/PixyBar`: a macOS menu-bar app and C `pixyctl` helper that controls the PIXY through IOKit HID.
 - `nick0413/Emeet_pixy_for_linux`: a Tkinter and shell-script Linux UI using `v4l2-ctl` plus direct hidraw writes.
 
-`emeet-pixyd` independently validates the same core tracking/privacy, gesture, and audio HID command families that PixyPilot uses. Its most useful additional lesson is operational rather than new command coverage: it queries HID state and waits about `200ms` between core HID config and commit reports. PixyPilot now exposes a read-only HID state query endpoint and keeps the report gap configurable through YAML.
+`emeet-pixyd` independently validates the same core tracking/privacy, gesture, and audio HID command families that Pixy Arch uses. Its most useful additional lesson is operational rather than new command coverage: it queries HID state and waits about `200ms` between core HID config and commit reports. Pixy Arch now exposes a read-only HID state query endpoint and keeps the report gap configurable through YAML.
 
-The project did not reveal additional decoded smart-camera commands beyond PixyPilot's current capture set. PixyPilot currently has broader decoded coverage for focus/metering, mirror/flip, auto-rotate, auto-privacy delay, HID PTZ vector movement, and native PTZ preset save/load.
+The project did not reveal additional decoded smart-camera commands beyond Pixy Arch's current capture set. Pixy Arch currently has broader decoded coverage for focus/metering, mirror/flip, auto-rotate, auto-privacy delay, HID PTZ vector movement, and native PTZ preset save/load.
 
-`PixyBar` added useful independent coverage outside the Windows captures. It confirms that target tracking has a separate group `04`, command `01` family with off/face/half-body/full-body modes, and that PTZ can be driven with group `03` degree-based relative and absolute motor commands. It also masks HID response group bytes with `0x1f`, which PixyPilot now mirrors when parsing responses. PixyBar's README also matches local testing: AI tracking visibly follows only while another app has the video stream open.
+`PixyBar` added useful independent coverage outside the Windows captures. It confirms that target tracking has a separate group `04`, command `01` family with off/face/half-body/full-body modes, and that PTZ can be driven with group `03` degree-based relative and absolute motor commands. It also masks HID response group bytes with `0x1f`, which Pixy Arch now mirrors when parsing responses. PixyBar's README also matches local testing: AI tracking visibly follows only while another app has the video stream open.
 
-`Emeet_pixy_for_linux` did not reveal new UVC extension selector mappings. It independently confirms the standard V4L2 plus vendor HID split and uses the same core HID commands for tracking/privacy, gesture, audio mode, and auto-privacy. Its main product lesson is UI clarity: dependent controls should make the auto/manual parent obvious. PixyPilot exposes dependency hints and one-click unlock actions for inactive exposure, white-balance, and focus sliders.
+`Emeet_pixy_for_linux` did not reveal new UVC extension selector mappings. It independently confirms the standard V4L2 plus vendor HID split and uses the same core HID commands for tracking/privacy, gesture, audio mode, and auto-privacy. Its main product lesson is UI clarity: dependent controls should make the auto/manual parent obvious. Pixy Arch exposes dependency hints and one-click unlock actions for inactive exposure, white-balance, and focus sliders.
 
-## PixyPilot Implementation Status
+## Pixy Arch Implementation Status
 
 Current implementation status:
 
@@ -195,7 +197,7 @@ EMEET Studio uses normal UVC Probe/Commit negotiation for its format picker. Cap
 
 No vendor HID or UVC Extension Unit command was observed for these format changes.
 
-PixyPilot applies these format changes with native `VIDIOC_S_FMT` and `VIDIOC_S_PARM` calls. Active preview streams are stopped before changing format to avoid `EBUSY` from the V4L2 device.
+Pixy Arch applies these format changes with native `VIDIOC_S_FMT` and `VIDIOC_S_PARM` calls. Active preview streams are stopped before changing format to avoid `EBUSY` from the V4L2 device.
 
 ## Confirmed Audio Controls
 
@@ -204,7 +206,7 @@ The PIXY microphone can be controlled through standard ALSA.
 - `Mic Capture Switch`: read/write boolean, used for mute.
 - `Mic Capture Volume`: read/write integer `0..10`.
 
-PixyPilot mutes the microphone when entering camera privacy mode. It does not automatically unmute when privacy mode is turned off, because that should remain an explicit user choice.
+Pixy Arch mutes the microphone when entering camera privacy mode. It does not automatically unmute when privacy mode is turned off, because that should remain an explicit user choice.
 
 ### Monitor / Listen
 
@@ -227,7 +229,7 @@ Observed HID report shape:
 - Report ID: `0x09`
 - Payload size: 31 bytes
 
-PixyPilot currently implements the following HID command families from reverse-engineered public work plus local testing.
+Pixy Arch currently implements the following HID command families from reverse-engineered public work plus local testing.
 
 ### Tracking / Privacy
 
@@ -255,7 +257,7 @@ Vendor-facing EMEET material describes Privacy Mode as reachable three ways:
 - App command: EMEET Studio can command Privacy Mode directly.
 - Timer: product listings describe timer-based privacy, but local tests could not make it trigger in EMEET Studio.
 
-PixyPilot has confirmed the app-command path through group `01` value `02`. Physical tilt is documented by EMEET, but it is not a host command. Timer-based privacy remains unconfirmed as working behavior. Privacy mode has been observed to darken the camera image. It appears to be an explicit camera state, not just a delayed timer. The auto-privacy delay is separate.
+Pixy Arch has confirmed the app-command path through group `01` value `02`. Physical tilt is documented by EMEET, but it is not a host command. Timer-based privacy remains unconfirmed as working behavior. Privacy mode has been observed to darken the camera image. It appears to be an explicit camera state, not just a delayed timer. The auto-privacy delay is separate.
 
 ### Target Tracking
 
@@ -266,7 +268,7 @@ PixyPilot has confirmed the app-command path through group `01` value `02`. Phys
 09 04 01 01
 ```
 
-Current mapping from that project, retained by PixyPilot for diagnostics and future correlation:
+Current mapping from that project, retained by Pixy Arch for diagnostics and future correlation:
 
 | Mode byte | Experimental label |
 | --- | --- |
@@ -277,7 +279,7 @@ Current mapping from that project, retained by PixyPilot for diagnostics and fut
 
 The three trailing values are little-endian float32 fields. PixyBar uses `0.5`, `0.5`, and `1.0` when enabling tracking. EMEET Studio does not expose Face/Half/Full labels, and local Linux testing saw Full-body read back as Face, so these values are not treated as confirmed user-facing controls.
 
-The Windows Focus/Metering UI maps better to the confirmed focus-metering command family: Center, Face, and selected Region. PixyPilot exposes those controls in Focus Control and uses preview clicks to send selected-area X/Y coordinates.
+The Windows Focus/Metering UI maps better to the confirmed focus-metering command family: Center, Face, and selected Region. Pixy Arch exposes those controls in the Focus panel and uses preview clicks to send selected-area X/Y coordinates.
 
 ### Auto Privacy Delay
 
@@ -292,10 +294,10 @@ Current interpretation:
 - `XX XX XX XX` is a 32-bit little-endian timeout in seconds.
 - `00 00 00 00` disables the automatic transition.
 - This configures a delay, but it does not itself immediately enter privacy mode.
-- The delay write is confirmed from EMEET Studio captures, but the camera-side trigger condition has not been confirmed. As of June 10, 2026, PixyPilot should treat this as experimental.
+- The delay write is confirmed from EMEET Studio captures, but the camera-side trigger condition has not been confirmed. As of June 10, 2026, Pixy Arch should treat this as experimental.
 - Capture `pcaps/28.pcapng` repeated a `10s` delay write, then showed no later explicit privacy command before the next delay write. That argues against a simple Windows-side 10-second timer in that capture, but does not prove the firmware trigger condition.
 - Capture `pcaps/28.pcapng` also showed device-to-host responses shaped like `09 02 00 02 00 01 00 01 XX`: `XX=03` while privacy was active and `XX=00` after returning to tracking/off. This may be a related privacy/auto-privacy status field, but it is not decoded.
-- Capture `pcaps/30.pcapng` isolated Standard Mode plus Assistance-tab Auto-Enter Privacy enabled with a 10-second delay. The only HID traffic was the group `02` delay write/readback; no automatic privacy transition occurred during the 42-second capture. PixyPilot should not present this as a working automatic privacy feature until the missing trigger condition is discovered.
+- Capture `pcaps/30.pcapng` isolated Standard Mode plus Assistance-tab Auto-Enter Privacy enabled with a 10-second delay. The only HID traffic was the group `02` delay write/readback; no automatic privacy transition occurred during the 42-second capture. Pixy Arch should not present this as a working automatic privacy feature until the missing trigger condition is discovered.
 
 Follow-up/query-like command:
 
@@ -403,7 +405,7 @@ Known feature ids for `FF`:
 | horizontal flip | `01` | `00` off, `01` on |
 | vertical flip | `02` | `00` off, `01` on |
 
-Current interpretation: these are independent HID toggles. PixyPilot exposes them as a four-state mirror control: Off, H, V, and HV.
+Current interpretation: these are independent HID toggles. Pixy Arch exposes them as a four-state mirror control: Off, H, V, and HV.
 
 ### Audio DSP Mode
 
@@ -465,9 +467,9 @@ Observed selector metadata:
 | 9 | 1024 bytes | buffer or mailbox |
 | 10 | 12 bytes | structured payload |
 
-Until those controls are mapped, PixyPilot treats UVC extension selectors as investigation data, not normal UI controls.
+Until those controls are mapped, Pixy Arch treats UVC extension selectors as investigation data, not normal UI controls.
 
-PixyPilot exposes a read-only probe for these selectors:
+Pixy Arch exposes a read-only probe for these selectors:
 
 ```text
 GET /api/devices/{videoN}/uvc-extension/selectors
@@ -475,7 +477,7 @@ POST /api/devices/{videoN}/uvc-extension/capture?save=false
 POST /api/devices/{videoN}/uvc-extension/capture?save=true
 ```
 
-The web UI exposes the same flow in `Future Deck -> UVC Extension`. `Probe` reads unit `2`, selectors `1..10`, and displays `GET_LEN`, `GET_INFO`, `GET_CUR`, `GET_MIN`, `GET_MAX`, `GET_RES`, and `GET_DEF` results when the device returns them. `Save` writes timestamped JSON snapshots under `diagnostics/uvc/`.
+The web UI exposes the same flow in `Diagnostics -> UVC extension`. `Probe` reads unit `2`, selectors `1..10`, and displays `GET_LEN`, `GET_INFO`, `GET_CUR`, `GET_MIN`, `GET_MAX`, `GET_RES`, and `GET_DEF` results when the device returns them. `Save` writes timestamped JSON snapshots under `diagnostics/uvc/`.
 
 Saved snapshots are compared with the latest prior saved snapshot for the same device. The UI and JSON mark `changed_selectors`, `changed_since_previous`, and `changed_fields`, which makes official-app packet captures easier to correlate with Linux-side state.
 
@@ -563,7 +565,7 @@ Current conclusion from launch-idle:
 - No clear UVC Extension Unit selector writes were observed during idle startup.
 - The next captures must isolate one user action at a time so these startup queries can be separated from real feature commands.
 
-Follow-up live checks on 2026-06-10 showed `09 01 01 01` returning value `03` after both Standard and Tracking commands, while Privacy returned value `02`. PixyPilot now decodes only `02` as verified Privacy. Value `03` is treated as verified non-privacy with set bits `[0, 1]`, but it is not proven to distinguish Standard from Tracking. The UI therefore shows device readback separately from the last commanded Standard/Tracking mode.
+Follow-up live checks on 2026-06-10 showed `09 01 01 01` returning value `03` after both Standard and Tracking commands, while Privacy returned value `02`. Pixy Arch now decodes only `02` as verified Privacy. Value `03` is treated as verified non-privacy with set bits `[0, 1]`, but it is not proven to distinguish Standard from Tracking. The UI therefore shows device readback separately from the last commanded Standard/Tracking mode.
 
 ## AF Toggle Capture
 
@@ -596,7 +598,7 @@ Current conclusion:
 - This capture maps AF off/on to standard UVC `Focus, Auto`, not to HID.
 - Turning the control off also made EMEET Studio write `Focus Absolute = 512`.
 - This is not a separate Smart Pixy tracking command. It maps to standard UVC autofocus.
-- PixyPilot already exposes this behavior through Focus Control as `focus_automatic_continuous` plus `focus_absolute`.
+- Pixy Arch already exposes this behavior through the Focus panel as `focus_automatic_continuous` plus `focus_absolute`.
 
 ## Focus/Metering And Control Captures
 
@@ -706,7 +708,7 @@ Current interpretation of selected-area payload:
 - The three named modes are safe to expose. Selected-area clicking should be treated as experimental until the preview-to-device coordinate transform is validated.
 - The earlier mockup labels `AF Trigger` and `AF Lock` should not be treated as separate missing official-app commands unless EMEET Studio exposes literal actions with those names. The captured official behavior corresponding to "focus on person" and "focus on position" is this Focus/Metering HID mode family.
 
-PixyPilot implements the three captured Focus/Metering modes as Focus target buttons in the Focus Control panel. The selected-area button currently uses the captured center-ish coordinate payload until a live preview click target is added.
+Pixy Arch implements the three captured Focus/Metering modes as Focus target buttons in the Focus panel. The selected-area button currently uses the captured center-ish coordinate payload until a live preview click target is added.
 
 ## Directional PTZ HID Jog
 
@@ -882,9 +884,9 @@ Capture `pcaps/20.pcapng` tested manual 90-degree rotate-left, 90-degree rotate-
 
 Capture `pcaps/23.pcapng` tested zoom far to near and back to far. The only control writes after streaming began were standard UVC `SET_CUR` writes to Camera Terminal entity `0x01`, selector `0x0b` (`Zoom Absolute`): value `150` for near and value `100` for far. No HID reports were present.
 
-Capture `pcaps/24.pcapng` tested saving official app PTZ presets to slots 1, 2, and 3. It confirmed HID group `03`, command `15` saves a 1-based slot and command `16` queries that slot's saved state. PixyPilot implements native preset save from this capture.
+Capture `pcaps/24.pcapng` tested saving official app PTZ presets to slots 1, 2, and 3. It confirmed HID group `03`, command `15` saves a 1-based slot and command `16` queries that slot's saved state. Pixy Arch implements native preset save from this capture.
 
-Capture `pcaps/25.pcapng` tested loading presets. Slots 1, 2, and 3 used HID group `03`, command `18` with the 1-based slot number. EMEET Studio then wrote standard UVC Zoom Absolute value `100` after each load. PixyPilot implements native HID preset load and restores zoom from the local app preset when available.
+Capture `pcaps/25.pcapng` tested loading presets. Slots 1, 2, and 3 used HID group `03`, command `18` with the 1-based slot number. EMEET Studio then wrote standard UVC Zoom Absolute value `100` after each load. Pixy Arch implements native HID preset load and restores zoom from the local app preset when available.
 
 Capture `pcaps/26.pcapng` tested an official-app `1x` to `2x` control. No HID reports, UVC writes, UVC extension writes, or audio controls occurred after enumeration. Current conclusion: that control is app-local preview/software scaling, not a camera-side command.
 

@@ -18,16 +18,16 @@ export function FirmwarePanel({ firmware }: Props) {
   const status = firmware.status;
   const hasRawVersions = status?.components.some((component) => component.current?.startsWith("0x")) ?? false;
   return (
-    <section className="smart-panel">
+    <section className="smart-panel firmware-panel">
       <div className="panel-title-row">
-        <Cpu size={18} />
+        <Cpu size={16} />
         <h2>Firmware</h2>
       </div>
 
       {firmware.error && <div className="mini-error">{firmware.error}</div>}
       {status?.reason && <div className="mini-warning">{status.reason}</div>}
 
-      <div className="smart-control-stack">
+      <div className="firmware-list">
         {status?.components.map((component) => (
           <FirmwareComponentRow key={component.name} component={component} manifestChecked={status.manifest_checked} />
         ))}
@@ -43,15 +43,15 @@ export function FirmwarePanel({ firmware }: Props) {
             version encoding is not decoded yet, so update detection may be unknown.
           </small>
         )}
-        <div className="smart-control">
+        <div className="firmware-actions">
           <button
-            className="primary-action"
+            className="secondary-button"
             disabled={firmware.checking || !(status?.components.length)}
             onClick={() => void firmware.checkUpdates()}
           >
             {firmware.checking ? "Checking…" : "Check for updates"}
           </button>
-          {status?.manifest_checked && <small>Checked {status.manifest_url}</small>}
+          {status?.manifest_checked && <small title={status.manifest_url ?? undefined}>Checked {status.manifest_url}</small>}
         </div>
       </div>
     </section>

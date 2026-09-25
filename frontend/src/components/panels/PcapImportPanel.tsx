@@ -101,8 +101,8 @@ export function PcapImportPanel() {
   return (
     <section className="pcap-import-panel">
       <div className="panel-title-row">
-        <FolderInput size={18} />
-        <h2>Windows Capture Inbox</h2>
+        <FolderInput size={16} />
+        <h2>Capture inbox</h2>
       </div>
 
       <div
@@ -137,12 +137,14 @@ export function PcapImportPanel() {
         </label>
         <input
           className="pcap-text-input"
+          aria-label="Action changed"
           value={action}
           onChange={(event) => setAction(event.target.value)}
           placeholder="Action changed"
         />
         <textarea
           className="pcap-text-input"
+          aria-label="Capture notes"
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
           placeholder="Notes"
@@ -165,7 +167,7 @@ export function PcapImportPanel() {
               </option>
             ))}
           </select>
-          <button className="icon-button" disabled={pending !== null} aria-label="Refresh imports" onClick={() => void refresh()}>
+          <button className="icon-button" disabled={pending !== null} aria-label="Refresh imports" title="Refresh imports" onClick={() => void refresh()}>
             <RefreshCw size={15} />
           </button>
         </div>

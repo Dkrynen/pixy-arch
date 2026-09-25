@@ -1,6 +1,6 @@
 # UVC Extension Correlation Guide
 
-PixyPilot treats EMEET PIXY UVC Extension Unit controls as read-only until a selector has been correlated with official app behavior.
+Pixy Arch treats EMEET PIXY UVC Extension Unit controls as read-only until a selector has been correlated with official app behavior.
 
 The PIXY is UVC-compliant as a webcam, but smart-camera behavior can still live behind vendor-specific UVC Extension Unit selectors. The known extension unit is:
 
@@ -10,7 +10,7 @@ GUID: 46394292-0cd0-4ae3-8783-3133f9eaaa3b
 Selectors: 1..10
 ```
 
-## What PixyPilot Probes
+## What Pixy Arch Probes
 
 The UVC Extension panel runs read-only `UVCIOC_CTRL_QUERY` calls for each selector:
 
@@ -32,7 +32,7 @@ Saved snapshots go to:
 diagnostics/uvc/
 ```
 
-When a previous saved snapshot exists for the same `/dev/videoN` device, PixyPilot marks:
+When a previous saved snapshot exists for the same `/dev/videoN` device, Pixy Arch marks:
 
 ```text
 changed_selectors
@@ -45,8 +45,8 @@ This is the main Linux-side tool for correlating official app behavior.
 ## Linux Baseline
 
 1. Plug in the PIXY.
-2. Start PixyPilot.
-3. Open `Future Deck -> UVC Extension`.
+2. Start Pixy Arch.
+3. Open `Diagnostics -> UVC extension`.
 4. Click `Save`.
 5. Keep the saved JSON path with your test notes.
 
@@ -74,18 +74,18 @@ pcaps/32_uvc_tracking_standard_to_tracking.pcapng
 ```
 
 6. Move the camera back to Linux.
-7. In PixyPilot, click `Save` in `Future Deck -> UVC Extension`.
+7. In Pixy Arch, click `Save` in `Diagnostics -> UVC extension`.
 8. Check `changed_selectors` in the UI and saved JSON.
 
 If a selector changed on Linux and the Windows pcap contains a matching UVC `SET_CUR`, we have a candidate mapping.
 
-## Getting Captures From Windows Into PixyPilot
+## Getting Captures From Windows Into Pixy Arch
 
-PixyPilot includes a `Windows Capture Inbox` panel for `.pcap` and `.pcapng` files.
+Pixy Arch includes a `Capture inbox` (Diagnostics view) panel for `.pcap` and `.pcapng` files.
 
 The normal local upload flow is:
 
-1. Bind PixyPilot to the LAN address in `config/pixypilot.yaml`:
+1. Bind Pixy Arch to the LAN address in `config/pixypilot.yaml`:
 
 ```yaml
 server:
@@ -93,14 +93,14 @@ server:
   port: 8000
 ```
 
-2. Restart PixyPilot.
+2. Restart Pixy Arch.
 3. From Windows, open:
 
 ```text
 http://<linux-machine-ip>:8000
 ```
 
-4. Use `Windows Capture Inbox` to select the USBPcap file, add the exact action label, and upload it.
+4. Use `Capture inbox` (Diagnostics view) to select the USBPcap file, add the exact action label, and upload it.
 
 Uploaded captures are stored under:
 
@@ -134,7 +134,7 @@ Promote a selector from unknown to named only when all are true:
 - The Windows capture changes one setting at a time.
 - The capture shows a UVC Extension Unit `SET_CUR` for unit `2`.
 - The selector and payload repeat across at least two captures.
-- PixyPilot's Linux `GET_CUR` snapshot changes consistently after the official app writes it.
+- Pixy Arch's Linux `GET_CUR` snapshot changes consistently after the official app writes it.
 - The behavior is reversible.
 
 If a selector changes during several unrelated actions, keep it raw.
@@ -143,4 +143,4 @@ If a selector changes during several unrelated actions, keep it raw.
 
 Read everything. Write only confirmed mappings.
 
-Unknown UVC extension selectors stay read-only in PixyPilot until their value range and behavior are understood.
+Unknown UVC extension selectors stay read-only in Pixy Arch until their value range and behavior are understood.

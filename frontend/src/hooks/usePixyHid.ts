@@ -120,31 +120,34 @@ export type UsePixyHidResult = {
   extendedReadbackReady?: boolean;
   refresh: () => Promise<void>;
   refreshStatus: (options?: { showLoading?: boolean }) => Promise<void>;
-  setTrackingMode: (mode: TrackingMode) => Promise<void>;
-  setTargetTrackingMode: (mode: TargetTrackingMode) => Promise<void>;
-  setGestureEnabled: (enabled: boolean) => Promise<void>;
-  setAutoRotateEnabled: (enabled: boolean) => Promise<void>;
-  setMirrorMode: (mode: MirrorMode) => Promise<void>;
-  setFocusMeteringMode: (mode: FocusMeteringMode, point?: FocusMeteringPoint) => Promise<void>;
-  setAudioMode: (mode: AudioMode) => Promise<void>;
-  setAutoPrivacySeconds: (seconds: number) => Promise<void>;
-  sendPtzDirection: (direction: PtzDirection) => Promise<void>;
-  sendPtzRelative: (direction: PtzDirection, degrees: number) => Promise<void>;
-  sendPtzAbsolute: (pan: number, tilt: number) => Promise<void>;
-  sendPtzVector: (vector: PtzVector) => Promise<void>;
-  recenterPtz: () => Promise<void>;
-  savePtzPreset: (slot: PtzPresetSlot) => Promise<void>;
-  loadPtzPreset: (slot: PtzPresetSlot) => Promise<void>;
-  clearPtzPreset: (slot: PtzPresetSlot) => Promise<void>;
-  capturePowerOnDefault: () => Promise<void>;
-  disablePowerOnDefault: () => Promise<void>;
-  goToDefault: () => Promise<void>;
-  setDenoise: (enabled: boolean) => Promise<void>;
-  setWbLock: (enabled: boolean) => Promise<void>;
-  setEvLock: (enabled: boolean, exposure?: number) => Promise<void>;
-  setFocusLock: (enabled: boolean) => Promise<void>;
-  setRemotePairing: (enabled: boolean) => Promise<void>;
-  setMotorSpeed: (axis: number, degreesPerSecond: number) => Promise<void>;
+  // Commands resolve true when the device accepted them and false when they
+  // failed (the reason lands in `error`), so callers never report a failed
+  // command as success.
+  setTrackingMode: (mode: TrackingMode) => Promise<boolean>;
+  setTargetTrackingMode: (mode: TargetTrackingMode) => Promise<boolean>;
+  setGestureEnabled: (enabled: boolean) => Promise<boolean>;
+  setAutoRotateEnabled: (enabled: boolean) => Promise<boolean>;
+  setMirrorMode: (mode: MirrorMode) => Promise<boolean>;
+  setFocusMeteringMode: (mode: FocusMeteringMode, point?: FocusMeteringPoint) => Promise<boolean>;
+  setAudioMode: (mode: AudioMode) => Promise<boolean>;
+  setAutoPrivacySeconds: (seconds: number) => Promise<boolean>;
+  sendPtzDirection: (direction: PtzDirection) => Promise<boolean>;
+  sendPtzRelative: (direction: PtzDirection, degrees: number) => Promise<boolean>;
+  sendPtzAbsolute: (pan: number, tilt: number) => Promise<boolean>;
+  sendPtzVector: (vector: PtzVector) => Promise<boolean>;
+  recenterPtz: () => Promise<boolean>;
+  savePtzPreset: (slot: PtzPresetSlot) => Promise<boolean>;
+  loadPtzPreset: (slot: PtzPresetSlot) => Promise<boolean>;
+  clearPtzPreset: (slot: PtzPresetSlot) => Promise<boolean>;
+  capturePowerOnDefault: () => Promise<boolean>;
+  disablePowerOnDefault: () => Promise<boolean>;
+  goToDefault: () => Promise<boolean>;
+  setDenoise: (enabled: boolean) => Promise<boolean>;
+  setWbLock: (enabled: boolean) => Promise<boolean>;
+  setEvLock: (enabled: boolean, exposure?: number) => Promise<boolean>;
+  setFocusLock: (enabled: boolean) => Promise<boolean>;
+  setRemotePairing: (enabled: boolean) => Promise<boolean>;
+  setMotorSpeed: (axis: number, degreesPerSecond: number) => Promise<boolean>;
 };
 
 export function usePixyHid(): UsePixyHidResult {
@@ -449,14 +452,16 @@ export function usePixyHid(): UsePixyHidResult {
   }, [refreshStatus]);
 
   const runCommand = useCallback(
-    async (command: string, action: () => Promise<void>) => {
+    async (command: string, action: () => Promise<void>): Promise<boolean> => {
       setPendingCommand(command);
       setError(null);
       try {
         await action();
         setLastCommand(command);
+        return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to run Pixy HID command");
+        return false;
       } finally {
         setPendingCommand(null);
       }

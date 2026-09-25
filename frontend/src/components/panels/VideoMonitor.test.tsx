@@ -229,6 +229,36 @@ describe("VideoMonitor", () => {
     expect(frame.querySelector(".focus-target-region")).not.toBeNull();
   });
 
+  it("does not draw a focus marker when the focus command fails", async () => {
+    const setFocusMeteringMode = vi.fn().mockResolvedValue(false);
+    render(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture()}
+        pixyHid={pixyHid(setFocusMeteringMode)}
+      />
+    );
+    const frame = screen.getByAltText("Live camera stream").parentElement!;
+    vi.spyOn(frame, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 1280,
+      height: 720,
+      top: 0,
+      left: 0,
+      right: 1280,
+      bottom: 720,
+      toJSON: () => ({})
+    });
+
+    fireEvent.pointerUp(frame, { clientX: 640, clientY: 360 });
+
+    await waitFor(() => expect(setFocusMeteringMode).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(frame.querySelector(".focus-target-region")).toBeNull();
+  });
+
   it("restarts the preview stream after an image load error", async () => {
     vi.useFakeTimers();
     const restartPreview = vi.fn();
@@ -274,6 +304,7 @@ describe("VideoMonitor", () => {
         videoFormats={videoFormats()}
         videoCapture={videoCapture({ restartPreview })}
         pixyHid={pixyHid()}
+        probeStreamError={vi.fn().mockResolvedValue(null)}
       />
     );
     const img = screen.getByAltText("Live camera stream");
@@ -291,6 +322,31 @@ describe("VideoMonitor", () => {
     expect(restartPreview).toHaveBeenCalledTimes(5);
     expect(screen.queryByText("Preview unavailable")).not.toBeInTheDocument();
     vi.useRealTimers();
+  });
+
+  it("shows the backend's reason once the preview gives up", async () => {
+    vi.useFakeTimers();
+    const probeStreamError = vi.fn().mockResolvedValue("height: Input should be less than or equal to 2160");
+    render(
+      <VideoMonitor
+        deviceName="video0"
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture()}
+        pixyHid={pixyHid()}
+        probeStreamError={probeStreamError}
+      />
+    );
+    const img = screen.getByAltText("Live camera stream");
+
+    for (const delay of [750, 1500, 2250, 3000]) {
+      fireEvent.error(img);
+      vi.advanceTimersByTime(delay);
+    }
+    fireEvent.error(img);
+    vi.useRealTimers();
+
+    expect(await screen.findByText("height: Input should be less than or equal to 2160")).toBeInTheDocument();
+    expect(probeStreamError).toHaveBeenCalledWith("/api/devices/video0/stream");
   });
 
   it("shows the privacy overlay while the device reports privacy mode", () => {

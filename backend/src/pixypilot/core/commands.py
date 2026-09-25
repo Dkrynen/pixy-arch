@@ -21,11 +21,19 @@ class CommandError(RuntimeError):
 
 class AsyncCommandRunner:
     async def run(self, argv: list[str]) -> CommandResult:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError as exc:
+            # A missing tool (alsa-utils, pipewire, ...) is an ordinary command
+            # failure: callers that degrade on CommandError keep degrading.
+            raise CommandError(
+                argv,
+                CommandResult(stdout="", stderr=f"{argv[0]}: command not found", returncode=127),
+            ) from exc
         stdout, stderr = await process.communicate()
         result = CommandResult(
             stdout=stdout.decode("utf-8", errors="replace"),

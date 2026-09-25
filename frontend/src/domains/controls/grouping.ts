@@ -22,12 +22,12 @@ export type ControlGroup = {
 };
 
 const GROUP_DEFS: Omit<ControlGroup, "controls">[] = [
-  { id: "ptz", title: "PTZ Control", accent: "cyan", icon: Crosshair },
-  { id: "image", title: "Image Control", accent: "lime", icon: SlidersHorizontal },
-  { id: "focus", title: "Focus Control", accent: "magenta", icon: Focus },
-  { id: "exposure", title: "Exposure Control", accent: "amber", icon: Aperture },
+  { id: "ptz", title: "PTZ", accent: "cyan", icon: Crosshair },
+  { id: "image", title: "Image", accent: "lime", icon: SlidersHorizontal },
+  { id: "focus", title: "Focus", accent: "magenta", icon: Focus },
+  { id: "exposure", title: "Exposure", accent: "amber", icon: Aperture },
   { id: "smart", title: "Smart Pixy", accent: "violet", icon: Sparkles },
-  { id: "other", title: "Other Controls", accent: "steel", icon: SunMedium }
+  { id: "other", title: "Other controls", accent: "steel", icon: SunMedium }
 ];
 
 const GROUP_BY_CONTROL: Record<string, ControlGroupId> = {

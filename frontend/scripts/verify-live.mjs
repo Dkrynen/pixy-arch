@@ -1,17 +1,76 @@
-// Run: npm run verify:live  (from frontend/, backend must be running)
+// Live end-to-end check against a running Pixy Arch backend + real PIXY.
+//
+//   npm run verify:live -- [baseUrl] [--sink=/dev/videoN|auto] [--cleanup-recording]
+//
+// Environment equivalents: PIXY_ARCH_URL (default http://127.0.0.1:8000),
+// PIXY_ARCH_SINK (default "auto" = the sink the backend reports),
+// PIXY_ARCH_SCREENSHOT_DIR (default: the OS temp dir),
+// PIXY_ARCH_CLEANUP_RECORDING=1 (delete the test recording this run made).
+//
+// The run restores the camera mode it found (privacy back on if it was on)
+// and deletes nothing it did not create. Exit code is 1 if any check fails.
 import { chromium } from "playwright";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-const BASE = "http://127.0.0.1:8000";
+const args = process.argv.slice(2);
+const flag = (name) => args.find((arg) => arg.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
+const BASE = (args.find((arg) => !arg.startsWith("--")) ?? process.env.PIXY_ARCH_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
+const SINK_ARG = flag("sink") ?? process.env.PIXY_ARCH_SINK ?? "auto";
+const CLEANUP_RECORDING = args.includes("--cleanup-recording") || process.env.PIXY_ARCH_CLEANUP_RECORDING === "1";
+const SHOT_DIR = process.env.PIXY_ARCH_SCREENSHOT_DIR ?? join(tmpdir(), "pixy-arch-verify");
+mkdirSync(SHOT_DIR, { recursive: true });
+const shotPath = (name) => join(SHOT_DIR, `${name}.png`);
+
 const IMG = "img[alt='Live camera stream']";
 const results = [];
 const consoleErrors = [];
 const pageErrors = [];
 const badResponses = [];
 
-const sh = (cmd) => { try { return execSync(cmd, { encoding: "utf8" }).trim(); } catch (e) { return `ERR: ${e.message}`; } };
-const rec = (n, pass, ev) => { results.push({ n, pass, ev }); console.log(`${pass ? "PASS" : "FAIL"}  ${n}  —  ${ev}`); };
-const failShot = async (page, tag) => { try { await page.screenshot({ path: `/tmp/pixy-fail-${tag}.png` }); } catch {} };
+const run = (file, argv) => {
+  try {
+    return execFileSync(file, argv, { encoding: "utf8" }).trim();
+  } catch (e) {
+    return `ERR: ${e.message}`;
+  }
+};
+const rec = (n, pass, ev) => {
+  results.push({ n, pass, ev });
+  console.log(`${pass ? "PASS" : "FAIL"}  ${n}  —  ${ev}`);
+};
+const failShot = async (page, tag) => { try { await page.screenshot({ path: shotPath(`pixy-arch-fail-${tag}`) }); } catch {} };
+
+async function api(path, init = {}) {
+  const response = await fetch(`${BASE}${path}`, { ...init, headers: { "Content-Type": "application/json", ...init.headers } });
+  if (!response.ok) {
+    throw new Error(`${init.method ?? "GET"} ${path} -> HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+async function resolveSink() {
+  if (SINK_ARG !== "auto") {
+    return SINK_ARG;
+  }
+  try {
+    return (await api("/api/virtualcam/status")).sink_path ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Remember the camera mode so the run can put it back (privacy on if it was on).
+let initialMode = null;
+try {
+  initialMode = (await api("/api/pixy-hid/state")).tracking_mode ?? null;
+} catch (e) {
+  console.log(`note: could not read the starting camera mode (${e.message}); will restore privacy`);
+}
+const sink = await resolveSink();
+let createdRecording = null;
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -45,8 +104,8 @@ try {
   // ---------- 1. Load ----------
   await page.goto(BASE, { waitUntil: "load" });
   await page.getByRole("heading", { name: "Pixy Arch" }).waitFor({ timeout: 10000 });
-  await page.getByRole("heading", { name: "Live Monitor" }).waitFor({ timeout: 10000 });
-  await page.getByRole("heading", { name: "PTZ Control" }).waitFor({ timeout: 15000 });
+  await page.getByRole("heading", { name: "Live monitor" }).waitFor({ timeout: 10000 });
+  await page.getByRole("heading", { name: "PTZ", exact: true }).waitFor({ timeout: 15000 });
   await page.getByRole("heading", { name: "Smart Pixy" }).waitFor({ timeout: 10000 });
   rec("1-load", consoleErrors.length === 0 && pageErrors.length === 0,
     `consoleErrors=${JSON.stringify(consoleErrors)} pageErrors=${JSON.stringify(pageErrors)} http>=400=${JSON.stringify(badResponses)}`);
@@ -91,13 +150,15 @@ try {
 
   // ---------- 4. Reload mid-stream ----------
   await page.reload({ waitUntil: "load" });
-  await page.getByRole("heading", { name: "Live Monitor" }).waitFor({ timeout: 10000 });
+  await page.getByRole("heading", { name: "Live monitor" }).waitFor({ timeout: 10000 });
   await page.getByRole("button", { name: "Show stream" }).click();
   await waitImg(9000);
   const st4 = await imgState();
-  const readers = sh("pgrep -af 'ffmpeg.*-i */dev/video10' || true");
+  // No ffmpeg should still be reading the loopback sink after the reload.
+  const readersRaw = sink ? run("pgrep", ["-af", `ffmpeg.*-i *${sink}`]) : "";
+  const readers = readersRaw.startsWith("ERR") ? "" : readersRaw;
   rec("4-reload-resilience", !!(st4 && st4.w > 0) && readers === "",
-    `img=${JSON.stringify(st4)} video10-readerProcs="${readers}"`);
+    `img=${JSON.stringify(st4)} sink=${sink ?? "none reported"} sinkReaderProcs="${readers}"`);
 
   // ---------- 5. Recording ----------
   await page.getByRole("button", { name: "Start recording" }).click();
@@ -107,8 +168,11 @@ try {
   await page.waitForSelector(".video-record-path", { timeout: 10000 });
   const recText = await page.locator(".video-record-path").innerText();
   const recPath = recText.replace(/^Last recording:\s*/, "").trim();
-  const ls = sh(`ls -la "${recPath}"`);
-  const probe = sh(`ffprobe -v error -show_entries format=duration,size -show_entries stream=codec_name,width,height -of default=nw=1 "${recPath}"`);
+  if (recPath && existsSync(recPath)) {
+    createdRecording = recPath;
+  }
+  const ls = run("ls", ["-la", recPath]);
+  const probe = run("ffprobe", ["-v", "error", "-show_entries", "format=duration,size", "-show_entries", "stream=codec_name,width,height", "-of", "default=nw=1", recPath]);
   rec("5-recording", recText.includes("Last recording:") && ls.includes(recPath.split("/").pop()) && !probe.startsWith("ERR"),
     `path=${recPath}\nls=${ls}\nffprobe=${probe}`);
 
@@ -122,7 +186,7 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll("details.smart-control")]
     .find((d) => d.querySelector("summary span")?.textContent.trim() === "Orientation")?.open === true);
   const mirrorVisible = await orientation.getByText("Mirror", { exact: true }).isVisible();
-  const autoRotVisible = await orientation.getByText("Auto Rotate").isVisible();
+  const autoRotVisible = await orientation.getByText("Auto rotate").isVisible();
   await oSummary.click();
   const collapsedAgain = await page.waitForFunction(() => [...document.querySelectorAll("details.smart-control")]
     .find((d) => d.querySelector("summary span")?.textContent.trim() === "Orientation")?.open === false).then(() => true).catch(() => false);
@@ -130,9 +194,9 @@ try {
   const kbOpen = await page.$$eval("details.smart-control", (ds) =>
     ds.find((d) => d.querySelector("summary span")?.textContent.trim() === "Orientation")?.open);
   const after = await openStates();
-  const othersCollapsed = after.every((d) => d.open === false || ["Tracking & Follow", "Orientation"].includes(d.label));
+  const othersCollapsed = after.every((d) => d.open === false || ["Tracking & follow", "Orientation"].includes(d.label));
   rec("6-disclosures",
-    before.find((d) => d.label === "Tracking & Follow")?.open === true &&
+    before.find((d) => d.label === "Tracking & follow")?.open === true &&
     before.filter((d) => d.open).length === 1 &&
     mirrorVisible && autoRotVisible && collapsedAgain && kbOpen === true && othersCollapsed,
     `before=${JSON.stringify(before)} mirror=${mirrorVisible} autoRotate=${autoRotVisible} recollapse=${collapsedAgain} kbEnter=${kbOpen} after=${JSON.stringify(after)}`);
@@ -140,12 +204,12 @@ try {
 
   // ---------- 7. View switching ----------
   await page.getByRole("button", { name: "Diagnostics" }).click();
-  await page.getByRole("heading", { name: "Future Deck" }).waitFor({ timeout: 8000 });
-  await page.getByRole("heading", { name: "HID Diagnostics" }).waitFor({ timeout: 8000 });
+  await page.getByRole("heading", { name: "UVC extension" }).waitFor({ timeout: 8000 });
+  await page.getByRole("heading", { name: "HID diagnostics" }).waitFor({ timeout: 8000 });
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByRole("heading", { name: "Settings" }).waitFor({ timeout: 8000 });
   await page.getByRole("button", { name: "Control Deck" }).click();
-  await page.getByRole("heading", { name: "Live Monitor" }).waitFor({ timeout: 8000 });
+  await page.getByRole("heading", { name: "Live monitor" }).waitFor({ timeout: 8000 });
   rec("7-views", consoleErrors.length === 0 && pageErrors.length === 0,
     `consoleErrors=${JSON.stringify(consoleErrors)} pageErrors=${JSON.stringify(pageErrors)}`);
 
@@ -162,7 +226,7 @@ try {
     `directionButtons=${dirCount} centerPad=${!!box} consoleErrors=${JSON.stringify(consoleErrors)}`);
 
   // ---------- 9. Viewport 800 ----------
-  await page.screenshot({ path: "/tmp/pixy-desktop-1440.png" });
+  await page.screenshot({ path: shotPath("pixy-arch-desktop-1440") });
   await page.setViewportSize({ width: 800, height: 900 });
   await page.waitForTimeout(400);
   const overflow = await page.evaluate(() => ({
@@ -171,16 +235,41 @@ try {
       const r = b.getBoundingClientRect(); return r.width > 0 && (r.right > document.documentElement.clientWidth + 1 || r.left < -1);
     }).map((b) => b.getAttribute("aria-label") || b.textContent.trim()).slice(0, 10),
   }));
-  await page.screenshot({ path: "/tmp/pixy-narrow-800.png" });
+  await page.screenshot({ path: shotPath("pixy-arch-narrow-800") });
   rec("9-viewport-800", overflow.scrollW <= 800 && overflow.clipped.length === 0,
     `scrollWidth=${overflow.scrollW} clippedButtons=${JSON.stringify(overflow.clipped)}`);
 
-  console.log("\n==== SUMMARY ====");
-  console.log(JSON.stringify({ results, consoleErrors, pageErrors, badResponses }, null, 2));
 } catch (e) {
   console.error("HARNESS-ABORT:", e.message);
+  rec("harness", false, e.message);
   await failShot(page, "abort");
-  console.log(JSON.stringify({ results, consoleErrors, pageErrors, badResponses }, null, 2));
 } finally {
   await browser.close();
+
+  // ---------- Restore ----------
+  const restoreMode = initialMode ?? "privacy";
+  try {
+    await api("/api/pixy-hid/tracking", { method: "PATCH", body: JSON.stringify({ mode: restoreMode }) });
+    console.log(`restored camera mode: ${restoreMode}`);
+  } catch (e) {
+    rec("restore-mode", false, `could not restore ${restoreMode}: ${e.message}`);
+  }
+  if (createdRecording) {
+    if (CLEANUP_RECORDING) {
+      try {
+        unlinkSync(createdRecording);
+        console.log(`removed test recording ${createdRecording}`);
+      } catch (e) {
+        console.log(`could not remove test recording ${createdRecording}: ${e.message}`);
+      }
+    } else {
+      console.log(`test recording kept at ${createdRecording} (pass --cleanup-recording to remove it)`);
+    }
+  }
+
+  console.log("\n==== SUMMARY ====");
+  console.log(JSON.stringify({ base: BASE, sink, screenshots: SHOT_DIR, results, consoleErrors, pageErrors, badResponses }, null, 2));
+  if (results.length === 0 || results.some((result) => !result.pass)) {
+    process.exitCode = 1;
+  }
 }

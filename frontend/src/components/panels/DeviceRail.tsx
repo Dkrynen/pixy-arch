@@ -1,9 +1,19 @@
 import { useEffect, useState } from "react";
-import { Aperture, Camera, Cpu, Crosshair, Focus, RotateCw, SlidersHorizontal, Sparkles } from "lucide-react";
+import {
+  Aperture,
+  Camera,
+  CheckCircle2,
+  CircleDashed,
+  Crosshair,
+  Focus,
+  RotateCw,
+  SlidersHorizontal,
+  Sparkles
+} from "lucide-react";
 
 import { fetchVideoRecordingStatus } from "../../lib/apiClient";
 import type { UseControlsResult } from "../../hooks/useControls";
-import type { UseDevicesResult } from "../../hooks/useDevices";
+import { isVirtualCameraDevice, type UseDevicesResult } from "../../hooks/useDevices";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import { formatKey, type UseVideoFormatsResult } from "../../hooks/useVideoFormats";
 import type { Device, VideoRecordingStatus } from "../../types/api";
@@ -19,10 +29,6 @@ function shortDeviceName(name: string): string {
   return head || name;
 }
 
-function isVirtualDevice(device: Device): boolean {
-  const haystack = `${device.driver ?? ""} ${device.bus_info ?? ""} ${device.name}`.toLowerCase();
-  return haystack.includes("v4l2loopback") || haystack.includes("loopback");
-}
 
 type Props = {
   devices: UseDevicesResult;
@@ -79,25 +85,25 @@ export function DeviceRail({ devices, controls, videoFormats, pixyHid }: Props) 
 
   const capabilityRows = [
     {
-      label: "PTZ Control",
+      label: "PTZ",
       detail: "Pan, Tilt, Zoom",
       ready: hasAnyControl(controls, ["pan_absolute", "tilt_absolute", "zoom_absolute"]),
       icon: Crosshair
     },
     {
-      label: "Image Control",
+      label: "Image",
       detail: "WB, Color, NR",
       ready: hasAnyControl(controls, ["brightness", "contrast", "saturation", "sharpness"]),
       icon: SlidersHorizontal
     },
     {
-      label: "Focus Control",
+      label: "Focus",
       detail: "Auto, Manual",
       ready: hasAnyControl(controls, ["focus_absolute", "focus_automatic_continuous"]),
       icon: Focus
     },
     {
-      label: "Exposure Control",
+      label: "Exposure",
       detail: "Auto, Manual",
       ready: hasAnyControl(controls, ["auto_exposure", "exposure_time_absolute"]),
       icon: Aperture
@@ -111,21 +117,38 @@ export function DeviceRail({ devices, controls, videoFormats, pixyHid }: Props) 
     }
   ];
 
+  const readyCount = capabilityRows.filter((row) => row.ready).length;
+  const allReady = readyCount === capabilityRows.length;
+  const capabilityDetail = capabilityRows
+    .map((row) => `${row.label} (${row.detail}): ${row.ready ? "ready" : row.partial ? "partial" : "waiting"}`)
+    .join("\n");
+
   return (
-    <aside className="device-rail">
+    <section className="device-rail">
       <div className="panel-title-row">
-        <Camera size={18} />
-        <h2>Device Bay</h2>
+        <Camera size={16} />
+        <h2>Device</h2>
         {recordingHere && (
           <span className="device-rec-badge" title={recordingFile ? `Recording ${recordingFile}` : "Recording"}>
             REC
           </span>
         )}
+        <button
+          className="secondary-button ghost-button device-refresh"
+          onClick={() => void devices.refresh()}
+          disabled={devices.isLoading}
+          title="Rescan /dev/video* for cameras"
+        >
+          <RotateCw size={14} className={devices.isLoading ? "spin" : undefined} />
+          {devices.isLoading ? "Scanning…" : "Refresh devices"}
+        </button>
       </div>
 
       <div className="device-picker">
         <div className="device-picker-readout">
-          <Camera size={24} />
+          <span className="device-glyph" aria-hidden="true">
+            <Camera size={18} />
+          </span>
           <div>
             <strong>
               {scanning
@@ -140,28 +163,31 @@ export function DeviceRail({ devices, controls, videoFormats, pixyHid }: Props) 
                   : backendDown
                     ? "Backend unreachable"
                     : "Awaiting PIXY"}
-              {selectedDevice ? " - Capture" : ""}
+              {selectedDevice ? " · Capture" : ""}
             </small>
           </div>
         </div>
-        <select
-          className="device-select"
-          aria-label="Select video device"
-          value={selectedDeviceName}
-          disabled={devices.devices.length === 0}
-          onChange={(event) => devices.setSelectedDeviceName(event.target.value)}
-        >
-          {devices.devices.length === 0 && <option value="">No devices</option>}
-          {devices.devices.map((device) => {
-            const deviceName = deviceNameFromPath(device.path);
-            const virtual = isVirtualDevice(device);
-            return (
-              <option key={device.path} value={deviceName}>
-                {deviceName.toUpperCase()} - {virtual ? "Virtual" : shortDeviceName(device.name)}
-              </option>
-            );
-          })}
-        </select>
+        <label className="field">
+          <span className="field-label">Camera</span>
+          <select
+            className="device-select"
+            aria-label="Select video device"
+            value={selectedDeviceName}
+            disabled={devices.devices.length === 0}
+            onChange={(event) => devices.setSelectedDeviceName(event.target.value)}
+          >
+            {devices.devices.length === 0 && <option value="">No devices</option>}
+            {devices.devices.map((device) => {
+              const deviceName = deviceNameFromPath(device.path);
+              const virtual = isVirtualCameraDevice(device);
+              return (
+                <option key={device.path} value={deviceName}>
+                  {deviceName} · {virtual ? "Virtual" : shortDeviceName(device.name)}
+                </option>
+              );
+            })}
+          </select>
+        </label>
         {!scanning && !backendDown && devices.devices.length === 0 && (
           <small className="device-hint">Connect the PIXY over USB, then refresh.</small>
         )}
@@ -171,73 +197,70 @@ export function DeviceRail({ devices, controls, videoFormats, pixyHid }: Props) 
       </div>
 
       <div className="format-picker">
-        <div>
-          <strong>Video Format</strong>
-          <small>
-            {videoFormats.isLoading
-              ? "Loading formats…"
-              : (videoFormats.selectedFormat?.description ?? "Standard UVC stream")}
-          </small>
-        </div>
-        <select
-          className="device-select"
-          aria-label="Select video format"
-          value={videoFormats.selectedKey}
-          disabled={videoFormats.formats.length === 0 || videoFormats.pending || videoFormats.isLoading}
-          onChange={(event) => void videoFormats.setSelectedKey(event.target.value)}
-        >
-          {videoFormats.formats.length === 0 && (
-            <option value="">{videoFormats.isLoading ? "Loading…" : "No formats"}</option>
-          )}
-          {videoFormats.formats.map((format) => {
-            const key = formatKey(format);
-            return (
-              <option key={key} value={key}>
-                {format.label}
-              </option>
-            );
-          })}
-        </select>
+        <label className="field">
+          <span className="field-label">
+            Video format
+            <small>
+              {videoFormats.isLoading
+                ? "Loading formats…"
+                : (videoFormats.selectedFormat?.description ?? "Standard UVC stream")}
+            </small>
+          </span>
+          <select
+            className="device-select"
+            aria-label="Select video format"
+            value={videoFormats.selectedKey}
+            disabled={videoFormats.formats.length === 0 || videoFormats.pending || videoFormats.isLoading}
+            onChange={(event) => void videoFormats.setSelectedKey(event.target.value)}
+          >
+            {videoFormats.formats.length === 0 && (
+              <option value="">{videoFormats.isLoading ? "Loading…" : "No formats"}</option>
+            )}
+            {videoFormats.formats.map((format) => {
+              const key = formatKey(format);
+              return (
+                <option key={key} value={key}>
+                  {format.label}
+                </option>
+              );
+            })}
+          </select>
+        </label>
         {videoFormats.error && <small className="format-error">{videoFormats.error}</small>}
       </div>
 
-      <button
-        className="secondary-button"
-        onClick={() => void devices.refresh()}
-        disabled={devices.isLoading}
-      >
-        <RotateCw size={16} className={devices.isLoading ? "spin" : undefined} />
-        {devices.isLoading ? "Scanning…" : "Refresh devices"}
-      </button>
-
-      <div className="device-meta">
-        <Cpu size={16} />
-        <span>
-          {selectedDevice?.driver ?? "Awaiting driver"}
-          {selectedDevice?.bus_info ? ` - ${selectedDevice.bus_info}` : ""}
-        </span>
+      <div className="device-meta" title="Kernel driver · USB bus">
+        <span>{selectedDevice?.driver ?? "Awaiting driver"}</span>
+        {selectedDevice?.bus_info && <span>{selectedDevice.bus_info}</span>}
       </div>
 
-      <div className="rail-divider" />
-
-      <div className="rail-section-title">Capabilities Summary</div>
-      <div className="capability-list">
-        {capabilityRows.map((row) => {
-          const Icon = row.icon;
-          return (
-            <div className="capability-row" key={row.label}>
-              <Icon size={16} />
-              <div>
+      {allReady ? (
+        <div className="capability-summary is-ok" title={capabilityDetail}>
+          <CheckCircle2 size={15} aria-hidden="true" />
+          <span>All controls available</span>
+          <small>PTZ · image · focus · exposure · Smart Pixy</small>
+        </div>
+      ) : (
+        <div className="capability-list" aria-label="Capabilities">
+          <div className="rail-section-title section-label">
+            Capabilities · {readyCount} of {capabilityRows.length} ready
+          </div>
+          {capabilityRows.map((row) => {
+            const Icon = row.icon;
+            const state = row.ready ? "ready" : row.partial ? "partial" : "waiting";
+            return (
+              <div className={`capability-row is-${state}`} key={row.label} title={row.detail}>
+                <Icon size={14} aria-hidden="true" />
                 <strong>{row.label}</strong>
-                <small>{row.detail}</small>
+                <em>
+                  {row.ready ? <CheckCircle2 size={13} aria-hidden="true" /> : <CircleDashed size={13} aria-hidden="true" />}
+                  {row.ready ? "Ready" : row.partial ? "Partial" : "Waiting"}
+                </em>
               </div>
-              <em className={row.ready ? "is-ok" : row.partial ? "is-partial" : ""}>
-                {row.ready ? "OK" : row.partial ? "Partial" : "Wait"}
-              </em>
-            </div>
-          );
-        })}
-      </div>
-    </aside>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }

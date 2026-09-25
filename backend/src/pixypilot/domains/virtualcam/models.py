@@ -2,6 +2,15 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from pixypilot.core.device_paths import VIDEO_PATH_RE, validate_device_path
+
+# Bounds keep a request from asking ffmpeg (and the standby frame buffer) for
+# absurd sizes; 4096 covers every PIXY mode with room to spare.
+MIN_DIMENSION = 16
+MAX_DIMENSION = 4096
+MIN_FPS = 1.0
+MAX_FPS = 120.0
+
 # V4L2 fourccs (as reported by /api/devices/{n}/formats) mapped to the
 # decoder name ffmpeg expects for -input_format. Anything not listed is
 # passed through verbatim so new pixel formats still reach ffmpeg, which
@@ -34,16 +43,23 @@ class VirtualCamTransform(BaseModel):
 
 
 class VirtualCamStartRequest(BaseModel):
+    # Both are handed to ffmpeg (the sink as an output path), so only V4L2
+    # video nodes are accepted; None/"" = auto-detect.
     source_device: str | None = None
     sink_device: str | None = None
     pipeline: Literal["transform", "whiteboard"] = "transform"
-    input_width: int = Field(default=1920, ge=1)
-    input_height: int = Field(default=1080, ge=1)
-    input_fps: float = Field(default=30.0, gt=0)
+    input_width: int = Field(default=1920, ge=MIN_DIMENSION, le=MAX_DIMENSION)
+    input_height: int = Field(default=1080, ge=MIN_DIMENSION, le=MAX_DIMENSION)
+    input_fps: float = Field(default=30.0, ge=MIN_FPS, le=MAX_FPS)
     input_format: str = "mjpeg"
-    output_width: int = Field(default=1920, ge=1)
-    output_height: int = Field(default=1080, ge=1)
+    output_width: int = Field(default=1920, ge=MIN_DIMENSION, le=MAX_DIMENSION)
+    output_height: int = Field(default=1080, ge=MIN_DIMENSION, le=MAX_DIMENSION)
     transform: VirtualCamTransform = Field(default_factory=VirtualCamTransform)
+
+    @field_validator("source_device", "sink_device")
+    @classmethod
+    def _check_device(cls, value: str | None) -> str | None:
+        return validate_device_path(value, VIDEO_PATH_RE, "video device")
 
     @field_validator("input_format")
     @classmethod

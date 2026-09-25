@@ -1,9 +1,14 @@
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 
 ControlPresetScope = Literal["image", "focus", "exposure"]
+# Keys are V4L2 control names (native_control_name): they become YAML keys in
+# the presets file, so arbitrary text is refused.
+CONTROL_NAME_RE = re.compile(r"[a-z0-9_]{1,64}")
+MAX_PRESET_VALUES = 64
 
 
 class ControlPreset(BaseModel):
@@ -17,7 +22,15 @@ class ControlPreset(BaseModel):
 class ControlPresetCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=48)
     scope: ControlPresetScope
-    values: dict[str, int] = Field(min_length=1)
+    values: dict[str, int] = Field(min_length=1, max_length=MAX_PRESET_VALUES)
+
+    @field_validator("values")
+    @classmethod
+    def check_control_names(cls, value: dict[str, int]) -> dict[str, int]:
+        for name in value:
+            if not CONTROL_NAME_RE.fullmatch(name):
+                raise ValueError(f"{name!r} is not a V4L2 control name")
+        return value
 
     @field_validator("name")
     @classmethod

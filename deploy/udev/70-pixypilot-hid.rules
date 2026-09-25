@@ -1,6 +1,6 @@
-# EMEET PIXY vendor HID controls for PixyPilot.
+# EMEET PIXY vendor HID controls for Pixy Arch.
 # TAG+="uaccess" grants the local seat user rw access to /dev/hidrawN via a
-# logind ACL — the mechanism that works on Arch/systemd. MODE="0660" keeps
+# logind ACL (systemd distros such as Arch and Ubuntu). MODE="0660" keeps
 # other users out. Install with tools/setup-all.sh (or copy to
 # /etc/udev/rules.d/ and run `udevadm control --reload && udevadm trigger`).
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="328f", ATTRS{idProduct}=="00c0", MODE="0660", TAG+="uaccess"

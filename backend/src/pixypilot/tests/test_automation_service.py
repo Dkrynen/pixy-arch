@@ -1,12 +1,17 @@
+import asyncio
 import os
-import stat
+import threading
 import time
 from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
 
 import pixypilot.domains.automation.service as automation_module
 from pixypilot.domains.audio.models import AudioStatus
 from pixypilot.domains.automation.models import AutomationSettings
-from pixypilot.domains.automation.service import AutomationService, _scan_holders
+from pixypilot.domains.automation.service import AutomationService, _load_settings, _scan_holders
+from pixypilot.domains.settings.service import SettingsService
 from pixypilot.domains.pixy_hid.models import PixyHidRawQueryResult, PixyHidStatus
 
 
@@ -58,8 +63,6 @@ def test_scan_holders_always_ignores_pipewire_and_wireplumber() -> None:
     fd = os.open("/dev/null", os.O_RDONLY)
     try:
         rdev = os.fstat(fd).st_rdev
-        import sys
-
         # Even with an empty user exclude list the enumerators never count.
         holders = _scan_holders(rdev, exclude=set())
         assert "pipewire" not in holders
@@ -298,3 +301,161 @@ def test_is_sink_writer_detects_ffmpeg_loopback_feeder(tmp_path) -> None:
 
     # no sink configured → nothing is excluded
     assert _is_sink_writer(pid_dir, None) is False
+
+
+def test_poll_interval_is_bounded() -> None:
+    with pytest.raises(ValidationError):
+        AutomationSettings(poll_seconds=0.1)
+    with pytest.raises(ValidationError):
+        AutomationSettings(poll_seconds=0)
+    assert AutomationSettings(poll_seconds=0.5).poll_seconds == 0.5
+
+
+def test_invalid_config_values_fall_back_to_defaults() -> None:
+    # A hand-edited config must not stop the backend from importing.
+    settings = _load_settings({"poll_seconds": 0.01, "on_close": "previous", "video_device": "/etc/passwd"})
+
+    assert settings.poll_seconds == 1.0
+    assert settings.video_device == "auto"
+    assert settings.on_close == "previous"
+
+
+def test_video_device_accepts_auto_or_video_nodes() -> None:
+    assert AutomationSettings().video_device == "auto"
+    assert AutomationSettings(video_device="").video_device == "auto"
+    assert AutomationSettings(video_device="AUTO").video_device == "auto"
+    assert AutomationSettings(video_device="/dev/video2").video_device == "/dev/video2"
+    with pytest.raises(ValidationError):
+        AutomationSettings(video_device="/dev/hidraw0")
+
+
+def test_auto_device_watches_pixy_capture_node(monkeypatch) -> None:
+    import unittest.mock as mock
+
+    service = AutomationService()
+    service.settings = AutomationSettings()
+    stat_calls: list[str] = []
+    monkeypatch.setattr(automation_module, "_find_source_device", lambda: Path("/dev/video2"))
+    monkeypatch.setattr(automation_module, "_still_pixy_node", lambda device: True)
+    monkeypatch.setattr(
+        automation_module.os,
+        "stat",
+        lambda path, *a, **k: stat_calls.append(str(path)) or mock.Mock(st_rdev=5),
+    )
+    monkeypatch.setattr(
+        automation_module, "_scan_holders", lambda rdev, exclude, self_pid=None, sink_arg=None: ["zoom"]
+    )
+
+    assert service._scan_all_holders(None, None) == ["zoom"]  # noqa: SLF001
+    assert stat_calls == ["/dev/video2"]
+
+
+def test_auto_device_without_pixy_watches_nothing(monkeypatch) -> None:
+    service = AutomationService()
+    service.settings = AutomationSettings()
+    monkeypatch.setattr(automation_module, "_find_source_device", lambda: None)
+
+    def fail_stat(*_args, **_kwargs):
+        raise AssertionError("no device should be inspected, not even /dev/video0")
+
+    monkeypatch.setattr(automation_module.os, "stat", fail_stat)
+
+    assert service._scan_all_holders(Path("/dev/video10"), b"/dev/video10") == []  # noqa: SLF001
+
+
+def test_auto_device_resolution_is_cached_while_node_is_still_pixy(monkeypatch) -> None:
+    service = AutomationService()
+    service.settings = AutomationSettings()
+    lookups: list[int] = []
+    monkeypatch.setattr(
+        automation_module, "_find_source_device", lambda: lookups.append(1) or Path("/dev/video2")
+    )
+    monkeypatch.setattr(automation_module, "_still_pixy_node", lambda device: True)
+
+    assert service._resolve_video_device() == Path("/dev/video2")  # noqa: SLF001
+    assert service._resolve_video_device() == Path("/dev/video2")  # noqa: SLF001
+    assert len(lookups) == 1
+
+    monkeypatch.setattr(automation_module, "_still_pixy_node", lambda device: False)
+    service._resolve_video_device()  # noqa: SLF001
+    assert len(lookups) == 2
+
+
+async def test_watch_loop_scans_proc_off_the_event_loop(monkeypatch) -> None:
+    service = AutomationService()
+    service.settings = AutomationSettings(poll_seconds=0.5)
+    scanned_on: list[threading.Thread] = []
+    scanned = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def fake_scan(sink, sink_arg):
+        scanned_on.append(threading.current_thread())
+        loop.call_soon_threadsafe(scanned.set)
+        return []
+
+    monkeypatch.setattr(automation_module, "_find_loopback_device", lambda: None)
+    monkeypatch.setattr(service, "_scan_all_holders", fake_scan)
+    task = asyncio.create_task(service._watch_loop())  # noqa: SLF001
+    try:
+        await asyncio.wait_for(scanned.wait(), timeout=2)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert scanned_on and scanned_on[0] is not threading.main_thread()
+
+
+async def test_apply_settings_persists_to_config_file(tmp_path, monkeypatch) -> None:
+    settings_path = tmp_path / "config" / "pixypilot.yaml"
+    settings_path.parent.mkdir()
+    settings_path.write_text("safety:\n  start_in_privacy: true\n", encoding="utf-8")
+    service = AutomationService(settings_service=SettingsService(settings_path))
+
+    status = await service.apply_settings(AutomationSettings(enabled=False, poll_seconds=2.0))
+
+    import yaml
+
+    saved = yaml.safe_load(settings_path.read_text(encoding="utf-8"))
+    assert saved["safety"] == {"start_in_privacy": True}
+    assert saved["automation"]["enabled"] is False
+    assert saved["automation"]["poll_seconds"] == 2.0
+    assert saved["automation"]["video_device"] == "auto"
+    assert status.running is False
+    assert status.settings.enabled is False
+
+
+async def test_apply_settings_leaves_runtime_alone_when_save_fails(tmp_path) -> None:
+    settings_path = tmp_path / "pixypilot.yaml"
+    settings_path.write_text("automation: [broken\n", encoding="utf-8")
+    service = AutomationService(settings_service=SettingsService(settings_path))
+    before = service.settings
+
+    with pytest.raises(ValueError):
+        await service.apply_settings(AutomationSettings(enabled=False))
+
+    assert service.settings is before
+
+
+async def test_automation_route_reports_unsaved_settings(tmp_path) -> None:
+    import httpx
+    from fastapi import FastAPI
+
+    from pixypilot.api.routes import router
+    from pixypilot.domains.automation.service import get_automation_service
+
+    settings_path = tmp_path / "pixypilot.yaml"
+    settings_path.write_text("- not a mapping\n", encoding="utf-8")
+    service = AutomationService(settings_service=SettingsService(settings_path))
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_automation_service] = lambda: service
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+        rejected = await client.patch("/api/automation/settings", json={"poll_seconds": 0.1})
+        failed = await client.patch("/api/automation/settings", json={"enabled": False})
+
+    assert rejected.status_code == 422
+    assert failed.status_code == 500
+    assert "could not be saved" in failed.json()["detail"]

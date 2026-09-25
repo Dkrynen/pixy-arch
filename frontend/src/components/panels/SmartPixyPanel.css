@@ -1,19 +1,18 @@
-/* SmartPixyPanel-local styles. Reuses the shared .smart-control, .segmented,
-   .toggle-switch, .mic-mute-row, .privacy-help classes from styles.css. */
+/* SmartPixyPanel-local styles. Section, row and toggle chrome is shared
+   from styles.css (.smart-control, .mic-mute-row, .segmented …). */
 
 .hid-permission-hint {
   display: block;
   margin: calc(-1 * var(--space-1)) 0 var(--space-3);
   color: var(--text-2);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .hid-permission-hint code {
   color: var(--text-1);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11.5px;
 }
 
 .smart-toggle-stack {
@@ -21,58 +20,75 @@
   gap: var(--space-2);
 }
 
+.smart-pixy-panel .slider-row input[type="range"] {
+  min-width: 0;
+}
+
 .advanced-control {
-  padding: 0;
+  padding-bottom: 0;
 }
 
 .advanced-toggle {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 10px;
   width: 100%;
-  min-height: 40px;
-  padding: var(--space-3);
-  border: none;
-  border-radius: inherit;
+  min-height: 28px;
+  margin: -4px 0;
+  padding: 4px 0;
+  border: 0;
+  border-radius: var(--radius-xs);
   color: var(--text-1);
   background: transparent;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
 }
 
-.advanced-toggle:hover {
+.advanced-toggle svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.advanced-toggle .collapse-caret {
+  margin-left: auto;
+  transform: rotate(-90deg);
+  transition: transform var(--dur-2) var(--ease);
+}
+
+.advanced-toggle[aria-expanded="true"] .collapse-caret {
+  transform: rotate(0deg);
+}
+
+.advanced-toggle:hover svg {
   color: var(--text-1);
-  background: var(--surface-inset);
 }
 
-.advanced-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+@media (max-width: 720px), (pointer: coarse) {
+  .advanced-toggle {
+    min-height: 40px;
+  }
 }
 
 .advanced-body {
   display: grid;
-  gap: var(--space-4);
-  padding: 0 var(--space-3) var(--space-3);
+  gap: var(--space-5);
+  padding-top: var(--space-1);
 }
 
 .advanced-group {
   display: grid;
-  gap: var(--space-2);
+  gap: 10px;
 }
 
 .advanced-group-title {
   display: flex;
   align-items: center;
-  gap: 7px;
-  color: var(--text-2);
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  gap: 6px;
+}
+
+.advanced-group-title svg {
+  flex: none;
 }
 
 .advanced-goto-row {
@@ -83,14 +99,15 @@
 
 /* Mic level meter — thin bar under the Level meter toggle. */
 .mic-level-meter {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--surface-3);
+  height: 4px;
   overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
 }
+
 .mic-level-fill {
   height: 100%;
   border-radius: inherit;
-  background: var(--accent);
+  background: var(--ok);
   transition: width 120ms linear;
 }

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { controlDisplayLabel } from "../../../domains/controls/display";
+import { rangeFill } from "../../../lib/rangeFill";
 import type { V4L2Control } from "../../../types/api";
 import { ControlShell } from "./ControlShell";
 
@@ -35,10 +37,12 @@ export function RangeControl({ control, allControls, disabled, onSetValue }: Pro
       <input
         className="range-input"
         type="range"
+        aria-label={controlDisplayLabel(control)}
         min={min}
         max={max}
         step={step}
         value={draftValue}
+        style={rangeFill(draftValue, min, max)}
         disabled={unavailable}
         onChange={(event) => setDraftValue(Number(event.target.value))}
         onPointerUp={commitDraftValue}

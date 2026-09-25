@@ -1,6 +1,11 @@
 {
   "name": "pixypilot-frontend",
   "version": "0.1.0",
+  "description": "Pixy Arch UI: local control deck for the EMEET PIXY camera",
+  "author": "Duan Krynen",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +17,8 @@
     "verify:live": "node scripts/verify-live.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

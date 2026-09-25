@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Mic, PhoneCall, Shield } from "lucide-react";
 
 import type { AutomationSettings, UseAutomationResult } from "../../hooks/useAutomation";
+import { rangeFill } from "../../lib/rangeFill";
 
 type Props = {
   automation: UseAutomationResult;
@@ -17,9 +18,11 @@ export function AutomationPanel({ automation }: Props) {
     setGraceDraft(null);
   }, [settings?.grace_seconds]);
 
+  // Pass only the changed field; useAutomation merges it onto the freshest
+  // confirmed settings so a stale copy here can never overwrite newer values.
   const patch = (update: Partial<AutomationSettings>) => {
     if (!settings) return;
-    void automation.applySettings({ ...settings, ...update });
+    void automation.applySettings(update);
   };
 
   const commitGrace = () => {
@@ -33,10 +36,10 @@ export function AutomationPanel({ automation }: Props) {
   const unmuteMic = settings?.unmute_mic ?? true;
 
   return (
-    <section className="smart-panel">
+    <section className="smart-panel automation-panel">
       <div className="panel-title-row">
-        <PhoneCall size={18} />
-        <h2>Call Automation</h2>
+        <PhoneCall size={16} />
+        <h2>Call automation</h2>
       </div>
 
       <div className="hid-status-row">
@@ -49,7 +52,7 @@ export function AutomationPanel({ automation }: Props) {
             {status?.camera_in_use && status.holders.length
               ? `Held by ${status.holders.join(", ")}`
               : status?.running
-                ? `Watching ${settings?.video_device ?? "camera"}`
+                ? `Watching ${watchedDeviceText(settings?.video_device)}`
                 : lastActionText(status?.last_action)}
           </small>
         </div>
@@ -67,7 +70,7 @@ export function AutomationPanel({ automation }: Props) {
       <div className="smart-control-stack">
         <div className="smart-control smart-toggle-row">
           <div className="smart-label">
-            <Shield size={16} />
+            <Shield size={15} />
             <span>Enabled</span>
           </div>
           <button
@@ -82,7 +85,7 @@ export function AutomationPanel({ automation }: Props) {
         </div>
         <small className="privacy-help">
           Detects when an app (Meet, Zoom, OBS…) opens the camera and acts on call start/end. The
-          PixyPilot preview and PipeWire never count as a call.
+          Pixy Arch preview and PipeWire never count as a call.
         </small>
 
         <div className="smart-control">
@@ -92,6 +95,7 @@ export function AutomationPanel({ automation }: Props) {
           <div className="segmented">
             <button
               className={settings?.on_open === "tracking" ? "is-selected" : ""}
+              aria-pressed={settings?.on_open === "tracking"}
               disabled={disabled}
               onClick={() => patch({ on_open: "tracking" })}
             >
@@ -99,6 +103,7 @@ export function AutomationPanel({ automation }: Props) {
             </button>
             <button
               className={settings?.on_open === "none" ? "is-selected" : ""}
+              aria-pressed={settings?.on_open === "none"}
               disabled={disabled}
               onClick={() => patch({ on_open: "none" })}
             >
@@ -117,6 +122,7 @@ export function AutomationPanel({ automation }: Props) {
           <div className="segmented">
             <button
               className={settings?.on_close === "privacy" ? "is-selected" : ""}
+              aria-pressed={settings?.on_close === "privacy"}
               disabled={disabled}
               onClick={() => patch({ on_close: "privacy" })}
             >
@@ -124,6 +130,7 @@ export function AutomationPanel({ automation }: Props) {
             </button>
             <button
               className={settings?.on_close === "previous" ? "is-selected" : ""}
+              aria-pressed={settings?.on_close === "previous"}
               disabled={disabled}
               onClick={() => patch({ on_close: "previous" })}
             >
@@ -131,6 +138,7 @@ export function AutomationPanel({ automation }: Props) {
             </button>
             <button
               className={settings?.on_close === "none" ? "is-selected" : ""}
+              aria-pressed={settings?.on_close === "none"}
               disabled={disabled}
               onClick={() => patch({ on_close: "none" })}
             >
@@ -148,7 +156,7 @@ export function AutomationPanel({ automation }: Props) {
 
         <div className="smart-control smart-toggle-row">
           <div className="smart-label">
-            <Mic size={16} />
+            <Mic size={15} />
             <span>Unmute mic</span>
           </div>
           <button
@@ -168,7 +176,8 @@ export function AutomationPanel({ automation }: Props) {
 
         <div className="smart-control">
           <div className="smart-label">
-            <span>End delay {graceValue}s</span>
+            <span>End delay</span>
+            <output>{graceValue}s</output>
           </div>
           <input
             type="range"
@@ -176,6 +185,7 @@ export function AutomationPanel({ automation }: Props) {
             max={30}
             step={1}
             value={graceValue}
+            style={rangeFill(graceValue, 0, 30)}
             disabled={disabled}
             aria-label="Call end delay seconds"
             onChange={(event) => setGraceDraft(Number(event.target.value))}
@@ -199,6 +209,13 @@ export function AutomationPanel({ automation }: Props) {
       )}
     </section>
   );
+}
+
+function watchedDeviceText(videoDevice: string | undefined): string {
+  if (!videoDevice || videoDevice === "auto") {
+    return "the PIXY camera (auto-detected)";
+  }
+  return videoDevice;
 }
 
 function lastActionText(lastAction: string | null | undefined): string {

@@ -25,7 +25,7 @@ export function ControlRenderer({ control, allControls, disabled, onSetValue }: 
     // or bitmask controls). Show the last reported value instead of a fake slider.
     return (
       <ControlShell control={control} allControls={allControls}>
-        <span aria-label={`${control.label} is not adjustable`}>Not reported</span>
+        <span className="control-unavailable" aria-label={`${control.label} is not adjustable`}>Not reported</span>
       </ControlShell>
     );
   }

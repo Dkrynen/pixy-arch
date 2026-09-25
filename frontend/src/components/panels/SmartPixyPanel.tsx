@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   ChevronDown,
-  ChevronRight,
   Crosshair,
   FlipHorizontal2,
   Gauge,
@@ -10,6 +9,7 @@ import {
   PersonStanding,
   Power,
   ScanFace,
+  Settings2,
   Shield,
   Sparkles,
   Volume2
@@ -18,6 +18,7 @@ import {
 import type { UseAudioResult } from "../../hooks/useAudio";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
+import { rangeFill } from "../../lib/rangeFill";
 import type { AudioMode, FocusMeteringMode, MirrorMode, TargetTrackingMode, TrackingMode } from "../../types/api";
 import "./SmartPixyPanel.css";
 
@@ -68,7 +69,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
   const micAvailable = audio.status?.available === true;
   const privacyEnabled = pixyHid.deviceTrackingState === "privacy" || pixyHid.trackingMode === "privacy";
   const trackingEnabled = pixyHid.deviceTrackingState === "tracking" || pixyHid.trackingMode === "tracking";
-  const deviceTrackingText = deviceTrackingStateText(
+  const deviceTracking = deviceTrackingStateText(
     pixyHid.deviceTrackingState,
     pixyHid.deviceTrackingRawValue,
     pixyHid.deviceTrackingRawBits
@@ -81,6 +82,9 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
   const [tiltSpeedDraft, setTiltSpeedDraft] = useState(String(pixyHid.motorSpeedTiltDeg ?? 60));
   const [panTargetDraft, setPanTargetDraft] = useState("0");
   const [tiltTargetDraft, setTiltTargetDraft] = useState("0");
+  // Local gain while dragging; committed once on release like the V4L2 sliders.
+  const [gainDraft, setGainDraft] = useState<number | null>(null);
+  const gainValue = gainDraft ?? audio.status?.volume ?? 0;
 
   useEffect(() => {
     setAutoPrivacyDraft(String(pixyHid.autoPrivacySeconds ?? 0));
@@ -108,6 +112,16 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
     setAutoPrivacyDraft(String(seconds));
     if (pixyHid.autoPrivacySeconds !== seconds) {
       void pixyHid.setAutoPrivacySeconds(seconds);
+    }
+  };
+
+  const commitGain = () => {
+    if (gainDraft === null) {
+      return;
+    }
+    setGainDraft(null);
+    if (gainDraft !== audio.status?.volume) {
+      void audio.setVolume(gainDraft);
     }
   };
 
@@ -142,9 +156,9 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
   };
 
   return (
-    <section className="smart-panel">
+    <section className="smart-panel smart-pixy-panel">
       <div className="panel-title-row">
-        <Sparkles size={18} />
+        <Sparkles size={16} />
         <h2>Smart Pixy</h2>
       </div>
 
@@ -152,7 +166,10 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
         <span className={`hid-dot ${writable ? "is-ready" : available ? "is-warn" : ""}`} />
         <div>
           <strong>{writable ? "HID ready" : available ? "HID permission needed" : "HID not found"}</strong>
-          <small>{pixyHid.status?.path ?? pixyHid.status?.reason ?? "Scanning hidraw devices"}</small>
+          <small title={pixyHid.status?.path ?? undefined}>
+            {pixyHid.status?.path ??
+              (!writable && pixyHid.status?.reason ? null : (pixyHid.status?.reason ?? "Scanning hidraw devices"))}
+          </small>
         </div>
       </div>
 
@@ -164,8 +181,8 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
           the <code>plugdev</code> group), then reload udev and replug the camera.
         </small>
       )}
-      <div className={`privacy-safety-strip state-${privacySafety.startupPrivacyState}`}>
-        <Shield size={15} />
+      <div className={`privacy-safety-strip state-${privacySafetyTone(privacySafety)}`} role="status">
+        <Shield size={14} />
         <span>{privacySafetyText(privacySafety)}</span>
       </div>
 
@@ -173,13 +190,16 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
         <details className="smart-control privacy-control" open>
           <summary className="smart-label">
             <ScanFace size={16} />
-            <span>Tracking &amp; Follow</span>
+            <span>Tracking &amp; follow</span>
             <ChevronDown className="collapse-caret" size={14} />
           </summary>
           <div className="privacy-control-body">
             <div className={`device-mode-readback state-${pixyHid.deviceTrackingState}`}>
-              <span>Device reports</span>
-              <strong>{deviceTrackingText}</strong>
+              <span>Camera reports</span>
+              <strong title={deviceTracking.raw ?? undefined}>
+                <span className="state-dot" aria-hidden="true" />
+                {deviceTracking.label}
+              </strong>
             </div>
             <div className="privacy-mode-row mode-stack">
               <span>Mode</span>
@@ -188,6 +208,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                   <button
                     key={mode.value}
                     className={pixyHid.trackingMode === mode.value ? "is-selected" : ""}
+                    aria-pressed={pixyHid.trackingMode === mode.value}
                     data-tone={mode.value === "privacy" ? "warn" : undefined}
                     disabled={disabled}
                     onClick={() => setControlMode(mode.value)}
@@ -199,7 +220,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
             </div>
             <div className="mic-mute-row">
               <div>
-                <strong>Gesture Control</strong>
+                <strong>Gesture control</strong>
                 <small>Wave to toggle tracking</small>
               </div>
               <button
@@ -221,7 +242,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
         <details className="smart-control privacy-control">
           <summary className="smart-label">
             <Shield size={16} />
-            <span>Privacy Timer</span>
+            <span>Privacy timer</span>
             <ChevronDown className="collapse-caret" size={14} />
           </summary>
           <div className="privacy-control-body">
@@ -232,6 +253,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                   <button
                     key={preset.value}
                     className={pixyHid.autoPrivacySeconds === preset.value ? "is-selected" : ""}
+                    aria-pressed={pixyHid.autoPrivacySeconds === preset.value}
                     disabled={disabled}
                     onClick={() => setAutoPrivacyPreset(preset.value)}
                   >
@@ -248,6 +270,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                 max={900}
                 step={1}
                 disabled={disabled}
+                aria-label="Auto-privacy delay in seconds"
                 value={autoPrivacyDraft}
                 onChange={(event) => setAutoPrivacyDraft(event.target.value)}
                 onBlur={commitAutoPrivacy}
@@ -279,6 +302,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                 <button
                   key={mode.value}
                   className={pixyHid.mirrorMode === mode.value ? "is-selected" : ""}
+                  aria-pressed={pixyHid.mirrorMode === mode.value}
                   disabled={disabled}
                   onClick={() => void pixyHid.setMirrorMode(mode.value)}
                 >
@@ -289,7 +313,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
           </div>
           <div className="mic-mute-row">
             <div>
-              <strong>Auto Rotate</strong>
+              <strong>Auto rotate</strong>
               <small>Flip the image when the camera is upside down</small>
             </div>
             <button
@@ -318,6 +342,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                 <button
                   key={mode.value}
                   className={pixyHid.focusMeteringMode === mode.value ? "is-selected" : ""}
+                  aria-pressed={pixyHid.focusMeteringMode === mode.value}
                   disabled={disabled}
                   onClick={() => void pixyHid.setFocusMeteringMode(mode.value)}
                 >
@@ -336,14 +361,15 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
         <details className="smart-control">
           <summary className="smart-label">
             <Volume2 size={16} />
-            <span>Audio DSP</span>
+            <span>Audio</span>
             <ChevronDown className="collapse-caret" size={14} />
           </summary>
-          <div className="segmented">
+          <div className="segmented" role="group" aria-label="Audio processing">
             {audioModes.map((mode) => (
               <button
                 key={mode.value}
                 className={pixyHid.audioMode === mode.value ? "is-selected" : ""}
+                aria-pressed={pixyHid.audioMode === mode.value}
                 disabled={disabled}
                 onClick={() => void pixyHid.setAudioMode(mode.value)}
               >
@@ -373,16 +399,20 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
           {audio.error && <div className="mini-error">{audio.error}</div>}
           {micAvailable && (
             <>
-              <div className="privacy-mode-row">
-                <span>Gain {audio.status?.volume ?? "—"}</span>
+              <div className="privacy-mode-row slider-row">
+                <span>Gain {gainDraft ?? audio.status?.volume ?? "—"}</span>
                 <input
                   type="range"
                   min={0}
                   max={100}
                   step={1}
-                  value={audio.status?.volume ?? 0}
-                  disabled={audio.pending}
-                  onChange={(event) => void audio.setVolume(Number(event.target.value))}
+                  aria-label="Mic gain"
+                  value={gainValue}
+                  style={rangeFill(gainValue, 0, 100)}
+                  onChange={(event) => setGainDraft(Number(event.target.value))}
+                  onPointerUp={commitGain}
+                  onKeyUp={commitGain}
+                  onBlur={commitGain}
                 />
               </div>
               <div className="mic-mute-row">
@@ -452,7 +482,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
         <details className="smart-control">
           <summary className="smart-label">
             <Lock size={16} />
-            <span>Locks &amp; Imaging</span>
+            <span>Locks &amp; imaging</span>
             <ChevronDown className="collapse-caret" size={14} />
           </summary>
           <div className="smart-toggle-stack">
@@ -494,13 +524,19 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
         <details className="smart-control">
           <summary className="smart-label">
             <Power size={16} />
-            <span>Power-On &amp; Remote</span>
+            <span>Power-on &amp; remote</span>
             <ChevronDown className="collapse-caret" size={14} />
           </summary>
-          <div className="segmented">
-            <button disabled={disabled} onClick={() => void pixyHid.capturePowerOnDefault()}>Save current</button>
-            <button disabled={disabled} onClick={() => void pixyHid.disablePowerOnDefault()}>Disable</button>
-            <button disabled={disabled} onClick={() => void pixyHid.goToDefault()}>Go to</button>
+          <div className="button-row">
+            <button className="secondary-button" disabled={disabled} onClick={() => void pixyHid.capturePowerOnDefault()}>
+              Save current
+            </button>
+            <button className="secondary-button" disabled={disabled} onClick={() => void pixyHid.goToDefault()}>
+              Go to
+            </button>
+            <button className="secondary-button" disabled={disabled} onClick={() => void pixyHid.disablePowerOnDefault()}>
+              Disable
+            </button>
           </div>
           <small className="privacy-help">{powerOnDefaultText(pixyHid)}</small>
           <ToggleRow
@@ -522,21 +558,23 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
             aria-expanded={advancedOpen}
             onClick={() => setAdvancedOpen((open) => !open)}
           >
-            {advancedOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+            <Settings2 size={16} />
             <span>Advanced</span>
+            <ChevronDown className="collapse-caret" size={14} />
           </button>
           {advancedOpen && (
             <div className="advanced-body">
               <div className="advanced-group">
                 <div className="advanced-group-title">
                   <PersonStanding size={14} />
-                  <span>Tracking Target</span>
+                  <span>Tracking target</span>
                 </div>
                 <div className="segmented">
                   {targetTrackingModes.map((mode) => (
                     <button
                       key={mode.value}
                       className={pixyHid.targetTrackingMode === mode.value ? "is-selected" : ""}
+                      aria-pressed={pixyHid.targetTrackingMode === mode.value}
                       disabled={disabled}
                       onClick={() => void pixyHid.setTargetTrackingMode(mode.value)}
                     >
@@ -553,9 +591,9 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
               <div className="advanced-group">
                 <div className="advanced-group-title">
                   <Gauge size={14} />
-                  <span>Motor Speed</span>
+                  <span>Motor speed</span>
                 </div>
-                <div className="privacy-mode-row">
+                <div className="privacy-mode-row slider-row">
                   <span>Pan {pixyHid.motorSpeedPanDeg ?? "—"}°/s</span>
                   <input
                     type="range"
@@ -563,7 +601,9 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                     max={360}
                     step={1}
                     disabled={disabled}
+                    aria-label="Pan motor speed"
                     value={Number(panSpeedDraft) || 60}
+                    style={rangeFill(Number(panSpeedDraft) || 60, 1, 360)}
                     onChange={(event) => setPanSpeedDraft(event.target.value)}
                     onPointerUp={() => commitMotorSpeed(1, panSpeedDraft, setPanSpeedDraft)}
                     onKeyDown={(event) => {
@@ -573,7 +613,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                     }}
                   />
                 </div>
-                <div className="privacy-mode-row">
+                <div className="privacy-mode-row slider-row">
                   <span>Tilt {pixyHid.motorSpeedTiltDeg ?? "—"}°/s</span>
                   <input
                     type="range"
@@ -581,7 +621,9 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                     max={360}
                     step={1}
                     disabled={disabled}
+                    aria-label="Tilt motor speed"
                     value={Number(tiltSpeedDraft) || 60}
+                    style={rangeFill(Number(tiltSpeedDraft) || 60, 1, 360)}
                     onChange={(event) => setTiltSpeedDraft(event.target.value)}
                     onPointerUp={() => commitMotorSpeed(2, tiltSpeedDraft, setTiltSpeedDraft)}
                     onKeyDown={(event) => {
@@ -596,7 +638,7 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
               <div className="advanced-group">
                 <div className="advanced-group-title">
                   <Move size={14} />
-                  <span>Go To Position</span>
+                  <span>Go to position</span>
                 </div>
                 <div className="advanced-goto-row">
                   <input
@@ -621,8 +663,8 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
                     value={tiltTargetDraft}
                     onChange={(event) => setTiltTargetDraft(event.target.value)}
                   />
-                  <button className="panel-action-button" disabled={disabled} onClick={goToAbsolute}>
-                    <span>Go</span>
+                  <button className="secondary-button" disabled={disabled} onClick={goToAbsolute}>
+                    Go
                   </button>
                 </div>
                 <small className="privacy-help">
@@ -634,7 +676,11 @@ export function SmartPixyPanel({ pixyHid, audio, privacySafety }: Props) {
         </div>
       </div>
 
-      {pixyHid.lastCommand && <div className="last-command">Last command: {pixyHid.lastCommand}</div>}
+      {pixyHid.lastCommand && (
+        <div className="last-command" title="Last HID command">
+          Last command: {pixyHid.lastCommand}
+        </div>
+      )}
     </section>
   );
 }
@@ -701,23 +747,43 @@ function motorPositionText(pixyHid: UsePixyHidResult) {
   return `Now at pan ${pixyHid.motorPosPanDeg}°, tilt ${pixyHid.motorPosTiltDeg ?? "—"}°.`;
 }
 
+function privacySafetyTone(privacySafety: UsePrivacySafetyResult) {
+  switch (privacySafety.privacyCommandState) {
+    case "sending":
+      return "sending";
+    case "applied":
+      return "applied";
+    case "mic-failed":
+    case "failed":
+      return "failed";
+    default:
+      return privacySafety.startupPrivacyState;
+  }
+}
+
 function privacySafetyText(privacySafety: UsePrivacySafetyResult) {
-  if (!privacySafety.startupPrivacyEnabled) {
-    return "Startup privacy disabled";
+  switch (privacySafety.privacyCommandState) {
+    case "sending":
+      return "Privacy sending…";
+    case "applied":
+      return "Privacy on; mic muted";
+    case "mic-failed":
+      return "Privacy on, but the mic mute failed; check the mic";
+    case "failed":
+      return "Privacy command failed; press Privacy to retry";
+    default:
+      break;
   }
-  if (privacySafety.startupPrivacyState === "waiting-for-hid") {
-    return "Startup privacy armed; waiting for HID access";
+  switch (privacySafety.startupPrivacyState) {
+    case "enabled":
+      return "Lens closes and mic mutes whenever Pixy Arch starts";
+    case "disabled":
+      return "Camera stays as-is when Pixy Arch starts";
+    case "unknown":
+      return "Startup privacy setting unavailable";
+    default:
+      return "Loading startup privacy setting";
   }
-  if (privacySafety.startupPrivacyState === "sending") {
-    return "Startup privacy sending";
-  }
-  if (privacySafety.startupPrivacyState === "sent") {
-    return "Startup privacy sent; mic mute requested";
-  }
-  if (privacySafety.startupPrivacyState === "failed") {
-    return "Startup privacy failed; press Privacy to retry";
-  }
-  return "Loading startup privacy setting";
 }
 
 function privacyHelpText(pixyHid: UsePixyHidResult, privacyEnabled: boolean, trackingEnabled: boolean) {
@@ -725,10 +791,10 @@ function privacyHelpText(pixyHid: UsePixyHidResult, privacyEnabled: boolean, tra
     return "Device readback or last command indicates privacy. Auto entry is only used after privacy is off.";
   }
   if (trackingEnabled) {
-    return "Tracking mode is active. Focus target selection is handled in Focus Control: Center, Face, or Region.";
+    return "Tracking is on. Choose the focus target (Center, Face or Region) in the Focus panel.";
   }
   if (pixyHid.deviceTrackingState === "standard") {
-    return "Device reports Standard mode. Select Tracking for auto follow, or use Focus Control for Center, Face, or Region metering.";
+    return "Standard mode. Select Tracking for auto follow, or use the Focus panel for Center, Face or Region metering.";
   }
   if (pixyHid.deviceTrackingState === "non_privacy") {
     return "Device confirms non-privacy, but this raw state is still unresolved.";
@@ -736,19 +802,17 @@ function privacyHelpText(pixyHid: UsePixyHidResult, privacyEnabled: boolean, tra
   return "Device mode is unknown after refresh. Select Privacy to send privacy mode now.";
 }
 
-function deviceTrackingStateText(state: UsePixyHidResult["deviceTrackingState"], rawValue: number | null, rawBits: number[]) {
-  const raw = rawValue === null ? "" : ` raw ${rawValue}${rawBits.length ? ` bits ${rawBits.join(",")}` : ""}`;
-  if (state === "standard") {
-    return `Standard${raw}`;
-  }
-  if (state === "tracking") {
-    return `Tracking${raw}`;
-  }
-  if (state === "privacy") {
-    return `Privacy${raw}`;
-  }
-  if (state === "non_privacy") {
-    return `Non-privacy${raw}`;
-  }
-  return raw ? `Unknown${raw}` : "Unknown";
+function deviceTrackingStateText(
+  state: UsePixyHidResult["deviceTrackingState"],
+  rawValue: number | null,
+  rawBits: number[]
+): { label: string; raw: string | null } {
+  const raw = rawValue === null ? null : `Raw value ${rawValue}${rawBits.length ? ` · bits ${rawBits.join(",")}` : ""}`;
+  const labels: Record<string, string> = {
+    standard: "Standard",
+    tracking: "Tracking",
+    privacy: "Privacy",
+    non_privacy: "Non-privacy"
+  };
+  return { label: labels[state] ?? "Unknown", raw };
 }

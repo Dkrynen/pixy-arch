@@ -1,117 +1,115 @@
-/* CommandLogPanel-local styles. Global design tokens live in styles.css (P9);
-   these rules only cover the event feed owned by the shell workstream. */
+/* CommandLogPanel-local styles: filter chips and the event feed. */
 
 .command-log-clear {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: auto;
   width: 28px;
   height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-2);
-  background: var(--surface-2);
-  cursor: pointer;
+  margin-left: auto;
 }
 
-.command-log-clear:hover {
-  color: var(--text-1);
-  border-color: var(--border-strong);
+@media (max-width: 720px), (pointer: coarse) {
+  .command-log-clear {
+    width: 40px;
+    height: 40px;
+  }
 }
 
 .command-log-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 12px;
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .command-log-filters button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 26px;
-  padding: 3px 10px;
-  border: 1px solid var(--border);
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
   color: var(--text-2);
-  background: var(--surface-2);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  cursor: pointer;
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 500;
 }
 
 .command-log-filters button em {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-style: normal;
-  font-size: 10px;
-  color: var(--text-2);
-  background: var(--surface-inset);
-  border-radius: 999px;
-  padding: 1px 6px;
+  font-variant-numeric: tabular-nums;
 }
 
-.command-log-filters button:hover {
-  border-color: var(--border-strong);
+.command-log-filters button:hover:not(.is-selected) {
+  border-color: var(--border-hover);
   color: var(--text-1);
 }
 
 .command-log-filters button.is-selected {
-  color: var(--bg);
-  border-color: #ff5cc8;
-  background: #ff5cc8;
+  border-color: transparent;
+  color: var(--text-1);
+  background: var(--surface-4);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
 }
 
 .command-log-filters button.is-selected em {
-  color: var(--bg);
-  background: var(--surface-inset);
+  color: var(--text-2);
+}
+
+@media (max-width: 720px), (pointer: coarse) {
+  .command-log-filters button {
+    height: 40px;
+    padding: 0 14px;
+  }
 }
 
 .command-log-feed {
   display: grid;
-  gap: 5px;
-  margin-top: 10px;
-  max-height: 320px;
+  align-content: start;
+  gap: 1px;
+  max-height: 340px;
+  margin-top: var(--space-3);
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .command-log-entry {
   display: grid;
-  grid-template-columns: 62px 52px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  min-height: 26px;
-  border-left: 2px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-inset);
-  padding: 4px 8px;
+  grid-template-columns: 4.25rem 3.75rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 5px 8px;
+  border-left: 2px solid var(--border-strong);
+  border-radius: 0 4px 4px 0;
+}
+
+.command-log-entry:hover {
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .command-log-entry time {
   color: var(--text-3);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
 .command-log-entry-cat {
-  color: var(--text-2);
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 0.06em;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .command-log-entry code {
   min-width: 0;
-  overflow: hidden;
   color: var(--text-1);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .command-log-entry.tone-ok {
@@ -123,7 +121,7 @@
 }
 
 .command-log-entry.tone-warn code {
-  color: color-mix(in srgb, var(--warn) 55%, white);
+  color: var(--warn-text);
 }
 
 .command-log-entry.tone-error {
@@ -131,5 +129,5 @@
 }
 
 .command-log-entry.tone-error code {
-  color: color-mix(in srgb, var(--danger) 45%, white);
+  color: var(--danger-text);
 }

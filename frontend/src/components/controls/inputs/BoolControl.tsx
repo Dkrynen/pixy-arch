@@ -1,3 +1,4 @@
+import { controlDisplayLabel } from "../../../domains/controls/display";
 import type { V4L2Control } from "../../../types/api";
 import { ControlShell } from "./ControlShell";
 
@@ -13,12 +14,13 @@ export function BoolControl({ control, allControls, disabled, onSetValue }: Prop
   const checked = control.value === 1;
 
   return (
-    <ControlShell control={control} allControls={allControls}>
+    <ControlShell control={control} allControls={allControls} showValue={false}>
       <button
         className={`toggle-switch ${checked ? "is-on" : ""}`}
         disabled={disabled || isInactive}
         onClick={() => void onSetValue(checked ? 0 : 1)}
         aria-pressed={checked}
+        aria-label={controlDisplayLabel(control)}
       >
         <span />
       </button>

@@ -6,7 +6,6 @@ import {
   Loader2,
   Maximize,
   Minimize,
-  RadioTower,
   Shield,
   Shrink,
   Square,
@@ -23,6 +22,7 @@ import {
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import type { UseVideoCaptureResult } from "../../hooks/useVideoCapture";
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
+import { fetchStreamError } from "../../lib/apiClient";
 import "./VideoMonitor.css";
 
 const MAX_STREAM_RETRIES = 4;
@@ -34,9 +34,18 @@ type Props = {
   videoCapture: UseVideoCaptureResult;
   pixyHid: UsePixyHidResult;
   virtualCamRunning?: boolean;
+  /** Injectable for tests; reads the backend's reason for a failed stream. */
+  probeStreamError?: (url: string) => Promise<string | null>;
 };
 
-export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, virtualCamRunning }: Props) {
+export function VideoMonitor({
+  deviceName,
+  videoFormats,
+  videoCapture,
+  pixyHid,
+  virtualCamRunning,
+  probeStreamError = fetchStreamError
+}: Props) {
   const selectedFormat = videoFormats.selectedFormat;
   const canUseVideo = Boolean(deviceName && selectedFormat);
   const isRecording = videoCapture.status?.recording === true;
@@ -44,6 +53,7 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
   const [focusTarget, setFocusTarget] = useState<FocusPoint | null>(null);
   const [streamReady, setStreamReady] = useState(false);
   const [streamFailed, setStreamFailed] = useState(false);
+  const [streamFailureReason, setStreamFailureReason] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [fillFrame, setFillFrame] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -92,7 +102,10 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
       return;
     }
 
-    await pixyHid.setFocusMeteringMode("selected_area", point);
+    if ((await pixyHid.setFocusMeteringMode("selected_area", point)) === false) {
+      // The command failed (reason shown by the HID error strip): no marker.
+      return;
+    }
     setFocusTarget({
       x: ((event.clientX - rect.left) / rect.width) * 100,
       y: ((event.clientY - rect.top) / rect.height) * 100
@@ -125,6 +138,7 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
     retryingRef.current = false;
     setStreamReady(false);
     setStreamFailed(false);
+    setStreamFailureReason(null);
     setStreamDims(null);
     setFocusTarget(null);
     if (reconnectTimerRef.current !== null) {
@@ -181,6 +195,24 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
     []
   );
 
+  // Once retries are exhausted, ask the backend why (e.g. 422 bad format,
+  // 503 camera busy) so the overlay can say more than "no frames".
+  const failedStreamUrl = streamFailed ? videoCapture.streamUrl : null;
+  useEffect(() => {
+    if (!failedStreamUrl) {
+      return;
+    }
+    let cancelled = false;
+    void probeStreamError(failedStreamUrl).then((reason) => {
+      if (!cancelled && reason) {
+        setStreamFailureReason(reason);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [failedStreamUrl, probeStreamError]);
+
   const handleStreamError = () => {
     if (!videoCapture.previewEnabled || reconnectTimerRef.current !== null || streamFailed) {
       return;
@@ -215,6 +247,7 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
   const handleRetryStream = () => {
     retryCountRef.current = 0;
     setStreamFailed(false);
+    setStreamFailureReason(null);
     setStreamReady(false);
     videoCapture.restartPreview();
   };
@@ -225,12 +258,34 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
       ? videoCapture.status.reason
       : null;
 
+  const statusChip = isRecording
+    ? { tone: "danger", label: `Recording ${recordingElapsed}` }
+    : isPrivacy
+      ? { tone: "warn", label: "Privacy" }
+      : videoCapture.previewEnabled
+        ? streamFailed
+          ? { tone: "danger", label: "No signal" }
+          : { tone: "good", label: "Live" }
+        : { tone: "neutral", label: "Idle" };
+  const formatText = selectedFormat
+    ? `${selectedFormat.width}×${selectedFormat.height} · ${Math.round(selectedFormat.fps * 100) / 100} fps · ${selectedFormat.pixel_format}`
+    : null;
+  const statusText = isRecording
+    ? `Recording to ${videoCapture.status?.path ?? "disk"}`
+    : canClickFocus
+      ? "Click the preview to set the focus point"
+      : (selectedFormat?.label ?? "No stream format selected");
+
   return (
-    <section className="video-monitor control-panel accent-cyan">
+    <section className="video-monitor control-panel">
       <div className="video-monitor-header">
         <div className="panel-title-row">
-          <Video size={18} />
-          <h2>Live Monitor</h2>
+          <Video size={16} />
+          <h2>Live monitor</h2>
+          <strong className={`monitor-state tone-${statusChip.tone}`} aria-live="polite">
+            <span className="monitor-state-dot" aria-hidden="true" />
+            {statusChip.label}
+          </strong>
         </div>
         <div className="video-actions">
           <button
@@ -246,27 +301,27 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
                   : "Show stream"
             }
           >
-            {videoCapture.previewEnabled ? <EyeOff size={16} /> : <Eye size={16} />}
-            {videoCapture.previewEnabled ? "Hide" : "Show"}
+            {videoCapture.previewEnabled ? <EyeOff size={15} /> : <Eye size={15} />}
+            <span className="button-label">{videoCapture.previewEnabled ? "Hide" : "Show"}</span>
           </button>
           <button
-            className="secondary-button icon-button"
+            className="icon-button"
             disabled={!videoCapture.streamUrl}
             onClick={() => setFillFrame((current) => !current)}
             aria-pressed={fillFrame}
             aria-label={fillFrame ? "Fit frame (show whole image)" : "Fill frame (crop to fill)"}
             title={fillFrame ? "Fit — show the whole image" : "Fill — crop to remove black bars"}
           >
-            {fillFrame ? <Shrink size={16} /> : <Expand size={16} />}
+            {fillFrame ? <Shrink size={15} /> : <Expand size={15} />}
           </button>
           <button
-            className="secondary-button icon-button"
+            className="icon-button"
             disabled={!videoCapture.streamUrl}
             onClick={toggleFullscreen}
             aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen preview"}
             title={isFullscreen ? "Exit fullscreen" : "Fullscreen preview"}
           >
-            {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+            {isFullscreen ? <Minimize size={15} /> : <Maximize size={15} />}
           </button>
           <button
             className={`secondary-button record-button ${isRecording ? "is-recording" : ""}`}
@@ -275,20 +330,15 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
             aria-label={isRecording ? "Stop recording" : "Start recording"}
             title={isRecording ? "Stop recording" : "Start recording"}
           >
-            {isRecording ? <Square size={15} /> : <RadioTower size={16} />}
-            {isRecording ? "Stop" : "Record"}
+            {isRecording ? <Square size={12} fill="currentColor" /> : <span className="record-glyph" aria-hidden="true" />}
+            <span className="button-label">{isRecording ? "Stop" : "Record"}</span>
           </button>
         </div>
       </div>
 
       <div
         ref={frameRef}
-        className={`video-frame ${fillFrame ? "fit-cover" : ""} ${canClickFocus ? "can-click-focus" : ""} ${isPrivacy ? "is-privacy" : ""} ${streamFailed ? "stream-failed" : ""}`}
-        style={
-          imageDims && !isFullscreen
-            ? { aspectRatio: `${imageDims.width} / ${imageDims.height}` }
-            : undefined
-        }
+        className={`video-frame ${fillFrame ? "fit-cover" : ""} ${canClickFocus ? "can-click-focus" : ""} ${isPrivacy ? "is-privacy" : ""} ${streamFailed ? "stream-failed" : ""} ${isRecording ? "is-recording" : ""}`}
         onPointerUp={(event) => void handleFocusClick(event)}
         title={canClickFocus ? "Click to set focus target" : undefined}
       >
@@ -301,6 +351,14 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
               onError={handleStreamError}
               onLoad={handleStreamLoad}
             />
+            {streamReady && !isPrivacy && !streamFailed && (
+              <span className="video-scrim" aria-hidden="true" />
+            )}
+            {streamReady && formatText && !streamFailed && !isPrivacy && (
+              <span className="video-chip video-chip-format" aria-hidden="true">
+                {formatText}
+              </span>
+            )}
             {marker && !isPrivacy && (
               <span
                 className="focus-target-region"
@@ -343,22 +401,29 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
             )}
             {!streamReady && !streamFailed && !isPrivacy && (
               <span className="video-connecting" aria-live="polite">
-                <Loader2 size={18} />
+                <Loader2 size={20} />
                 Connecting to camera…
               </span>
             )}
             {isPrivacy && (
               <span className="video-overlay is-privacy">
-                <Shield size={26} />
+                <span className="video-overlay-icon">
+                  <Shield size={22} />
+                </span>
                 <strong>Lens closed</strong>
                 <span>Privacy mode is on — the camera is shielding the image.</span>
               </span>
             )}
             {streamFailed && (
-              <span className="video-overlay">
-                <Unplug size={26} />
+              <span className="video-overlay is-failed">
+                <span className="video-overlay-icon">
+                  <Unplug size={22} />
+                </span>
                 <strong>Preview unavailable</strong>
-                <span>The camera did not deliver frames — it may be busy in another app or unplugged.</span>
+                <span>
+                  {streamFailureReason ??
+                    "The camera did not deliver frames — it may be busy in another app or unplugged."}
+                </span>
                 <button type="button" className="secondary-button" onClick={handleRetryStream}>
                   Retry preview
                 </button>
@@ -366,8 +431,10 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
             )}
           </>
         ) : (
-          <div className="video-placeholder">
-            <Video size={28} />
+          <div className={`video-placeholder ${isRecording ? "is-recording" : ""}`}>
+            <span className="video-overlay-icon">
+              {isRecording ? <span className="rec-dot" aria-hidden="true" /> : <Video size={22} />}
+            </span>
             <strong>
               {isRecording ? "Recording in progress" : canUseVideo ? "Preview paused" : "No capture device"}
             </strong>
@@ -380,38 +447,48 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
                     : "Show starts the stream and claims the camera"
                   : "Connect a camera to enable live preview"}
             </span>
+            {canUseVideo && !isRecording && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={videoCapture.togglePreview}
+                aria-label="Start preview"
+              >
+                <Eye size={15} />
+                Start preview
+              </button>
+            )}
           </div>
         )}
       </div>
 
-      <div className="video-status-row">
-        <span>
-          {isRecording
-            ? `Recording to ${videoCapture.status?.path ?? "disk"}`
-            : canClickFocus
-              ? "Click preview to set the focus point"
-              : (selectedFormat?.label ?? "No stream format selected")}
-        </span>
-        <strong>{isRecording ? `Recording ${recordingElapsed}` : videoCapture.previewEnabled ? "Previewing" : "Idle"}</strong>
-      </div>
-      <div className={`device-ownership-note ${(videoCapture.previewEnabled || isRecording) && !virtualCamRunning ? "is-locked" : ""}`}>
-        <Unplug size={14} />
-        <span>
-          {isRecording
-            ? virtualCamRunning
-              ? "Recording from the camera tap — other apps can keep using the virtual camera."
-              : "Recording owns the camera. Stop recording before opening it in another app."
-            : videoCapture.previewEnabled
+      <div className="video-footer">
+        <div className={`device-ownership-note ${(videoCapture.previewEnabled || isRecording) && !virtualCamRunning ? "is-locked" : ""}`}>
+          <Unplug size={14} />
+          <span>
+            {isRecording
               ? virtualCamRunning
-                ? "Preview shares the camera tap — other apps can attach to the virtual camera."
-                : "Preview owns the camera. Hide preview before opening it in another app."
-              : virtualCamRunning
-                ? "The virtual camera is streaming — other apps can attach to it."
-                : "Preview is stopped. The camera is available to other apps."}
-        </span>
+                ? "Recording from the camera tap — other apps can keep using the virtual camera."
+                : "Recording owns the camera. Stop recording before opening it in another app."
+              : videoCapture.previewEnabled
+                ? virtualCamRunning
+                  ? "Preview shares the camera tap — other apps can attach to the virtual camera."
+                  : "Preview owns the camera. Hide preview before opening it in another app."
+                : virtualCamRunning
+                  ? "The virtual camera is streaming — other apps can attach to it."
+                  : "Preview is stopped. The camera is available to other apps."}
+          </span>
+        </div>
+        {(isRecording || !(streamReady && formatText)) && (
+          <span className="video-status-text" title={statusText}>
+            {statusText}
+          </span>
+        )}
       </div>
       {!isRecording && videoCapture.status?.path && (
-        <div className="video-record-path">Last recording: {videoCapture.status.path}</div>
+        <div className="video-record-path" title={videoCapture.status.path}>
+          Last recording: {videoCapture.status.path}
+        </div>
       )}
       {recordingReason && <div className="mini-error">{recordingReason}</div>}
       {videoCapture.error && <div className="mini-error">{videoCapture.error}</div>}

@@ -73,14 +73,11 @@ describe("AutomationPanel", () => {
     render(<AutomationPanel automation={automation({ applySettings })} />);
 
     await user.click(screen.getByRole("button", { name: "Call automation" }));
-    expect(applySettings).toHaveBeenCalledWith(
-      expect.objectContaining({ enabled: false, unmute_mic: true })
-    );
+    // Only the changed field is sent, never a spread of possibly stale settings.
+    expect(applySettings).toHaveBeenCalledWith({ enabled: false });
 
     await user.click(screen.getByRole("button", { name: "Unmute mic during calls" }));
-    expect(applySettings).toHaveBeenCalledWith(
-      expect.objectContaining({ enabled: true, unmute_mic: false })
-    );
+    expect(applySettings).toHaveBeenLastCalledWith({ unmute_mic: false });
   });
 
   it("switches call-end behaviour and explains what it does", async () => {
@@ -91,12 +88,29 @@ describe("AutomationPanel", () => {
     expect(screen.getByText(/Parks the lens in privacy mode/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Restore" }));
-    expect(applySettings).toHaveBeenCalledWith(expect.objectContaining({ on_close: "previous" }));
+    expect(applySettings).toHaveBeenCalledWith({ on_close: "previous" });
+  });
+
+  it("marks the selected call behaviours as pressed", () => {
+    render(<AutomationPanel automation={automation()} />);
+
+    expect(screen.getByRole("button", { name: "Privacy" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Restore" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Tracking" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("describes the auto-detected PIXY node when video_device is auto", () => {
+    render(
+      <AutomationPanel
+        automation={automation({ status: status({ settings: { ...status().settings, video_device: "auto" } }) })}
+      />
+    );
+    expect(screen.getByText("Watching the PIXY camera (auto-detected)")).toBeInTheDocument();
   });
 
   it("explains that PipeWire and the preview never count as a call", () => {
     render(<AutomationPanel automation={automation()} />);
-    expect(screen.getByText(/never count as a call/)).toBeInTheDocument();
+    expect(screen.getByText(/Pixy Arch preview and PipeWire never count as a call/)).toBeInTheDocument();
   });
 
   it("renders a stopped state when the watcher is off", () => {

@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
 
-import { boolOptionLabels, controlDisplayLabel, dependencyAction, dependencyHint } from "../../domains/controls/display";
+import {
+  boolOptionLabels,
+  controlDisplayLabel,
+  controlNumberText,
+  dependencyAction,
+  dependencyHint,
+  rawControlTitle
+} from "../../domains/controls/display";
 import { effectValuesForControls, IMAGE_EFFECTS } from "../../domains/controls/effects";
 import { controlValueText } from "../../domains/controls/grouping";
 import type { ControlGroup } from "../../domains/controls/grouping";
 import type { UseControlPresetsResult } from "../../hooks/useControlPresets";
 import type { UseControlsResult } from "../../hooks/useControls";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
+import { rangeFill } from "../../lib/rangeFill";
 import type { FocusMeteringMode, MirrorMode, V4L2Control } from "../../types/api";
 import { ControlPresetToolbar } from "./ControlPresetToolbar";
 
@@ -59,30 +67,34 @@ export function CompactControlPanel({ group, controls, pixyHid, controlPresets }
   return (
     <section className={`control-panel reference-control-panel control-panel-${group.id} accent-${group.accent}`}>
       <div className="panel-title-row">
-        <Icon size={18} />
+        <Icon size={16} />
         <h2>{group.title}</h2>
       </div>
       <ControlPresetToolbar group={group} controls={controls} controlPresets={controlPresets} />
       {group.id === "image" && (
         <div className="image-preset-tools">
-          <div className="effect-preset-strip" aria-label="Image effects">
-            {IMAGE_EFFECTS.map((effect) => (
-              <button
-                key={effect.id}
-                disabled={controls.pendingControl !== null}
-                onClick={() => void controls.setValues(effectValuesForControls(effect, group.controls))}
-              >
-                {effect.label}
-              </button>
-            ))}
+          <div className="tool-row effect-row">
+            <span className="tool-label">Look</span>
+            <div className="effect-preset-strip" role="group" aria-label="Image effects">
+              {IMAGE_EFFECTS.map((effect) => (
+                <button
+                  key={effect.id}
+                  disabled={controls.pendingControl !== null}
+                  onClick={() => void controls.setValues(effectValuesForControls(effect, group.controls))}
+                >
+                  {effect.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="mirror-preset-row">
-            <span>Mirror</span>
+          <div className="tool-row mirror-preset-row">
+            <span className="tool-label">Mirror</span>
             <div className="reference-segmented columns-4">
               {MIRROR_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   className={pixyHid.mirrorMode === option.value ? "is-selected" : ""}
+                  aria-pressed={pixyHid.mirrorMode === option.value}
                   disabled={mirrorDisabled}
                   onClick={() => void pixyHid.setMirrorMode(option.value)}
                 >
@@ -94,13 +106,14 @@ export function CompactControlPanel({ group, controls, pixyHid, controlPresets }
         </div>
       )}
       {group.id === "focus" && (
-        <div className="focus-metering-tools">
-          <span>Focus target</span>
+        <div className="tool-row focus-metering-tools">
+          <span className="tool-label">Target</span>
           <div className="reference-segmented columns-3">
             {FOCUS_METERING_OPTIONS.map((option) => (
               <button
                 key={option.value}
                 className={pixyHid.focusMeteringMode === option.value ? "is-selected" : ""}
+                aria-pressed={pixyHid.focusMeteringMode === option.value}
                 disabled={focusMeteringDisabled}
                 onClick={() => void pixyHid.setFocusMeteringMode(option.value)}
               >
@@ -163,10 +176,12 @@ function CompactControlRow({ control, peerControls, disabled, onSetValue, onSetD
   }, [control.value]);
 
   return (
-    <div className={`reference-control-row ${hasPresets ? "has-presets" : ""} ${isInactive ? "is-inactive" : ""}`}>
+    <div
+      className={`reference-control-row ${hasPresets ? "has-presets" : ""} ${isInactive ? "is-inactive" : ""}`}
+      title={rawControlTitle({ ...control, value: hasRange ? draftValue : control.value })}
+    >
       <div className="reference-control-label">
         <span>{controlDisplayLabel(control)}</span>
-        {hint && <small>{hint}</small>}
       </div>
       <div className="reference-control-input">
         <CompactInput
@@ -177,9 +192,14 @@ function CompactControlRow({ control, peerControls, disabled, onSetValue, onSetD
           onSetValue={onSetValue}
         />
       </div>
-      {(!hasPresets || action) && (
+      {!hasPresets && (
         <div className="reference-control-output">
-          {!hasPresets && <output>{hasRange ? draftValue : controlValueText(control)}</output>}
+          <output>{hasRange ? controlNumberText(control.name, draftValue) : controlValueText(control)}</output>
+        </div>
+      )}
+      {(hint || action) && (
+        <div className="reference-control-note">
+          {hint && <small>{hint}</small>}
           {action && (
             <button
               className="dependency-unlock-button"
@@ -205,16 +225,21 @@ function CompactInput({ control, disabled, draftValue, onDraftValue, onSetValue 
   if (control.kind === "unknown") {
     // The driver reported a control type we cannot safely write — be honest
     // instead of showing a fake slider.
-    return <span aria-label={`${controlDisplayLabel(control)} is not adjustable`}>Not reported</span>;
+    return (
+      <span className="control-unavailable" aria-label={`${controlDisplayLabel(control)} is not adjustable`}>
+        Not reported
+      </span>
+    );
   }
 
   if (control.kind === "bool") {
     return (
-      <div className="reference-segmented two-up">
+      <div className="reference-segmented two-up" role="group" aria-label={controlDisplayLabel(control)}>
         {boolOptionLabels(control).map((option) => (
           <button
             key={option.value}
             className={control.value === option.value ? "is-selected" : ""}
+            aria-pressed={control.value === option.value}
             disabled={disabled}
             onClick={() => void onSetValue(option.value)}
           >
@@ -227,11 +252,16 @@ function CompactInput({ control, disabled, draftValue, onDraftValue, onSetValue 
 
   if (control.kind === "menu" && control.menu.length > 0 && control.menu.length <= 4) {
     return (
-      <div className={`reference-segmented columns-${control.menu.length}`}>
+      <div
+        className={`reference-segmented columns-${control.menu.length}`}
+        role="group"
+        aria-label={controlDisplayLabel(control)}
+      >
         {control.menu.map((option) => (
           <button
             key={option.value}
             className={control.value === option.value ? "is-selected" : ""}
+            aria-pressed={control.value === option.value}
             disabled={disabled}
             onClick={() => void onSetValue(option.value)}
           >
@@ -246,6 +276,7 @@ function CompactInput({ control, disabled, draftValue, onDraftValue, onSetValue 
     return (
       <select
         className="menu-select"
+        aria-label={controlDisplayLabel(control)}
         value={control.value}
         disabled={disabled}
         onChange={(event) => void onSetValue(Number(event.target.value))}
@@ -281,10 +312,12 @@ function CompactRangeInput({ control, disabled, draftValue, onDraftValue, onSetV
     <input
       className="range-input"
       type="range"
+      aria-label={controlDisplayLabel(control)}
       min={control.min ?? 0}
       max={control.max ?? 100}
       step={control.step && control.step > 0 ? control.step : 1}
       value={draftValue}
+      style={rangeFill(draftValue, control.min ?? 0, control.max ?? 100)}
       disabled={disabled}
       onChange={(event) => onDraftValue(Number(event.target.value))}
       onPointerUp={commitDraftValue}

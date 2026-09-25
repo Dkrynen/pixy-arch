@@ -27,14 +27,30 @@ describe("CommandLogPanel", () => {
       />
     );
 
-    expect(screen.getByText("Command Log")).toBeInTheDocument();
+    expect(screen.getByText("Command log")).toBeInTheDocument();
     expect(screen.getByText("tracking:privacy")).toBeInTheDocument();
     expect(screen.getByText("writing brightness")).toBeInTheDocument();
     expect(screen.getByText("selected_area @ 64,32")).toBeInTheDocument();
     expect(screen.getByText("MJPG 1280x720 30fps")).toBeInTheDocument();
     expect(screen.getByText("recording")).toBeInTheDocument();
     expect(screen.getByText("mic muted")).toBeInTheDocument();
-    expect(screen.getByText("startup privacy sent")).toBeInTheDocument();
+    expect(screen.getByText("startup privacy on")).toBeInTheDocument();
+  });
+
+  it("reports a failed privacy command honestly in the safety summary", () => {
+    render(
+      <CommandLogPanel
+        controls={controls()}
+        videoFormats={videoFormats()}
+        videoCapture={videoCapture()}
+        pixyHid={pixyHid()}
+        audio={audio()}
+        privacySafety={{ ...privacySafety(), privacyCommandState: "failed" }}
+      />
+    );
+
+    expect(screen.getByText("privacy failed")).toBeInTheDocument();
+    expect(screen.queryByText("startup privacy on")).not.toBeInTheDocument();
   });
 
   it("renders timestamped feed entries and an empty state", () => {
@@ -242,7 +258,8 @@ function privacySafety(): UsePrivacySafetyResult {
     settings: null,
     settingsLoaded: true,
     startupPrivacyEnabled: true,
-    startupPrivacyState: "sent",
+    startupPrivacyState: "enabled",
+    privacyCommandState: "idle",
     settingsError: null,
     settingsPending: false,
     refreshSettings: vi.fn(),

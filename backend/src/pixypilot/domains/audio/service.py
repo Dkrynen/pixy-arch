@@ -1,16 +1,19 @@
 import asyncio
+import contextlib
 import json
 import math
 import re
 import signal
 import struct
+import time
 
 from pixypilot.core.commands import AsyncCommandRunner, CommandError
 from pixypilot.domains.audio.models import AudioCommandResult, AudioMonitorResult, AudioStatus
 
 PIXY_AUDIO_NAME = "EMEET PIXY"
 PIXY_NODE_NAME_RE = re.compile(r"EMEET_PIXY", re.IGNORECASE)
-MIC_SWITCH_NUMID = "2"
+MIC_SWITCH_CONTROL = "Mic Capture Switch"
+MIC_VOLUME_CONTROL = "Mic Capture Volume"
 
 CARD_LINE_RE = re.compile(r"card\s+(?P<card>\d+):\s+(?P<short>[^\[]+)\[(?P<long>[^\]]+)\]")
 VALUE_RE = re.compile(r": values=(?P<value>.+)")
@@ -22,6 +25,10 @@ METER_SAMPLE_FORMAT = "s16"
 # ~85 ms of 48 kHz s16 mono per read — a ~12 Hz meter refresh.
 METER_CHUNK_BYTES = 8192
 METER_FLOOR_DB = -60.0
+# The meter is started by a UI that then polls GET /audio/meter; when those
+# polls stop (tab closed, browser crashed) pw-cat must not run forever.
+METER_IDLE_TIMEOUT_S = 10.0
+METER_IDLE_CHECK_S = 1.0
 
 
 class AudioService:
@@ -32,6 +39,8 @@ class AudioService:
         self._meter: asyncio.subprocess.Process | None = None
         self._meter_node: str | None = None
         self._meter_task: asyncio.Task | None = None
+        self._meter_idle_task: asyncio.Task | None = None
+        self._meter_polled_at = 0.0
         self._level: int | None = None
         self._previous_default_source_id: int | None = None
 
@@ -76,8 +85,13 @@ class AudioService:
         if card is None:
             raise FileNotFoundError("EMEET PIXY audio capture device was not found")
 
+        # numids differ between firmware/kernel versions: look the switch up
+        # by name, as set_volume does.
+        numid = _control_numid(await self._card_contents(card), MIC_SWITCH_CONTROL)
+        if numid is None:
+            raise FileNotFoundError(f"{MIC_SWITCH_CONTROL} control was not found")
         value = "off" if muted else "on"
-        await self.runner.run(["amixer", "-c", str(card), "cset", f"numid={MIC_SWITCH_NUMID}", value])
+        await self.runner.run(["amixer", "-c", str(card), "cset", f"numid={numid}", value])
         return AudioCommandResult(ok=True, command="mic_mute", value=muted, card=card)
 
     async def set_volume(self, percent: int) -> AudioCommandResult:
@@ -85,9 +99,9 @@ class AudioService:
         if card is None:
             raise FileNotFoundError("EMEET PIXY audio capture device was not found")
         contents = await self._card_contents(card)
-        numid = _control_numid(contents, "Mic Capture Volume")
+        numid = _control_numid(contents, MIC_VOLUME_CONTROL)
         if numid is None:
-            raise FileNotFoundError("Mic Capture Volume control was not found")
+            raise FileNotFoundError(f"{MIC_VOLUME_CONTROL} control was not found")
         await self.runner.run(["amixer", "-c", str(card), "cset", f"numid={numid}", f"{percent}%"])
         return AudioCommandResult(ok=True, command="mic_volume", value=percent, card=card)
 
@@ -189,6 +203,7 @@ class AudioService:
         return AudioMonitorResult(ok=True, running=False, source_node=self._monitor_node)
 
     async def meter_status(self) -> AudioMonitorResult:
+        self._meter_polled_at = time.monotonic()
         running = self._meter is not None and self._meter.returncode is None
         return AudioMonitorResult(
             ok=True,
@@ -229,7 +244,10 @@ class AudioService:
             return AudioMonitorResult(ok=False, running=False, reason=f"pw-cat could not be started: {exc}")
         self._meter_node = node["name"]
         self._level = None
+        self._meter_polled_at = time.monotonic()
         self._meter_task = asyncio.create_task(self._read_meter(self._meter))
+        if self._meter_idle_task is None or self._meter_idle_task.done():
+            self._meter_idle_task = asyncio.create_task(self._stop_meter_when_unpolled())
         # A bad target makes pw-cat exit immediately — surface that instead of
         # reporting a running meter that produces nothing.
         await asyncio.sleep(0.15)
@@ -248,8 +266,14 @@ class AudioService:
     async def stop_meter(self) -> AudioMonitorResult:
         process = self._meter
         task = self._meter_task
+        idle_task = self._meter_idle_task
         self._meter = None
         self._meter_task = None
+        self._meter_idle_task = None
+        if idle_task is not None and idle_task is not asyncio.current_task():
+            idle_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await idle_task
         if process is not None and process.returncode is None:
             process.send_signal(signal.SIGINT)
             try:
@@ -265,6 +289,13 @@ class AudioService:
                 pass
         self._level = None
         return AudioMonitorResult(ok=True, running=False, source_node=self._meter_node)
+
+    async def _stop_meter_when_unpolled(self) -> None:
+        while self._meter is not None and self._meter.returncode is None:
+            await asyncio.sleep(METER_IDLE_CHECK_S)
+            if time.monotonic() - self._meter_polled_at >= METER_IDLE_TIMEOUT_S:
+                await self.stop_meter()
+                return
 
     async def _read_meter(self, process: asyncio.subprocess.Process) -> None:
         if process.stdout is None:

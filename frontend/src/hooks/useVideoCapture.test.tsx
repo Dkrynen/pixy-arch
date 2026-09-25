@@ -139,14 +139,14 @@ describe("useVideoCapture", () => {
     mockedStartVideoRecording.mockResolvedValue({
       recording: true,
       device_name: "video0",
-      path: "/FastDrive/EmmetPixy/recordings/test.mkv",
+      path: "/home/user/pixy-arch/recordings/test.mkv",
       started_at: "2026-06-09T23:30:00Z",
       reason: null
     });
     mockedStopVideoRecording.mockResolvedValue({
       recording: false,
       device_name: "video0",
-      path: "/FastDrive/EmmetPixy/recordings/test.mkv",
+      path: "/home/user/pixy-arch/recordings/test.mkv",
       started_at: "2026-06-09T23:30:00Z",
       reason: null
     });

@@ -6,7 +6,8 @@ import {
   fetchAudioStatus,
   setAudioMute,
   startAudioMeter,
-  stopAudioMeter
+  stopAudioMeter,
+  stopAudioMeterKeepalive
 } from "../lib/apiClient";
 import type { AudioStatus } from "../types/api";
 import { useAudio } from "./useAudio";
@@ -16,6 +17,7 @@ vi.mock("../lib/apiClient", () => ({
   fetchAudioMeter: vi.fn(),
   startAudioMeter: vi.fn(),
   stopAudioMeter: vi.fn(),
+  stopAudioMeterKeepalive: vi.fn(),
   setAudioMute: vi.fn(),
   setAudioVolume: vi.fn(),
   setAudioDefaultSource: vi.fn(),
@@ -28,6 +30,7 @@ const mockedSetAudioMute = vi.mocked(setAudioMute);
 const mockedFetchAudioMeter = vi.mocked(fetchAudioMeter);
 const mockedStartAudioMeter = vi.mocked(startAudioMeter);
 const mockedStopAudioMeter = vi.mocked(stopAudioMeter);
+const mockedStopAudioMeterKeepalive = vi.mocked(stopAudioMeterKeepalive);
 
 function status(overrides: Partial<AudioStatus> = {}): AudioStatus {
   return {
@@ -52,6 +55,95 @@ describe("useAudio", () => {
     mockedFetchAudioMeter.mockReset();
     mockedStartAudioMeter.mockReset();
     mockedStopAudioMeter.mockReset();
+    mockedStopAudioMeterKeepalive.mockReset();
+  });
+
+  it("stops a running meter with a keepalive request when the page is hidden", async () => {
+    mockedFetchAudioStatus.mockResolvedValue(status());
+    mockedStartAudioMeter.mockResolvedValue({ ok: true, running: true, pid: 1234, source_node: "alsa_input.pixy", reason: null });
+    mockedFetchAudioMeter.mockResolvedValue({ ok: true, running: true, pid: 1234, level: 5, source_node: "alsa_input.pixy", reason: null });
+
+    const { result } = renderHook(() => useAudio());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // Idle meter: leaving the page sends nothing.
+    window.dispatchEvent(new Event("pagehide"));
+    expect(mockedStopAudioMeterKeepalive).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.setMeterRunning?.(true);
+    });
+    window.dispatchEvent(new Event("pagehide"));
+
+    expect(mockedStopAudioMeterKeepalive).toHaveBeenCalledTimes(1);
+  });
+
+  it("restarts a wanted meter the backend idled out while the tab was hidden", async () => {
+    mockedFetchAudioStatus.mockResolvedValue(status());
+    mockedStartAudioMeter.mockResolvedValue({ ok: true, running: true, pid: 1234, source_node: "alsa_input.pixy", reason: null });
+    mockedFetchAudioMeter.mockResolvedValue({ ok: true, running: true, pid: 1234, level: 7, source_node: "alsa_input.pixy", reason: null });
+
+    const { result } = renderHook(() => useAudio());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await act(async () => {
+      await result.current.setMeterRunning?.(true);
+    });
+    expect(mockedStartAudioMeter).toHaveBeenCalledTimes(1);
+
+    // While hidden, polls stopped and the backend's 10 s idle stop kicked in.
+    mockedFetchAudioMeter.mockResolvedValue({ ok: true, running: false, pid: null, level: null, source_node: null, reason: null });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    await waitFor(() => expect(mockedStartAudioMeter).toHaveBeenCalledTimes(2));
+    expect(result.current.status?.meter_running).toBe(true);
+  });
+
+  it("does not restart the meter on visibility when the user turned it off", async () => {
+    mockedFetchAudioStatus.mockResolvedValue(status());
+    mockedStartAudioMeter.mockResolvedValue({ ok: true, running: true, pid: 1234, source_node: "alsa_input.pixy", reason: null });
+    mockedStopAudioMeter.mockResolvedValue({ ok: true, running: false, pid: null, source_node: null, reason: null });
+    mockedFetchAudioMeter.mockResolvedValue({ ok: true, running: false, pid: null, level: null, source_node: null, reason: null });
+
+    const { result } = renderHook(() => useAudio());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await act(async () => {
+      await result.current.setMeterRunning?.(true);
+    });
+    await act(async () => {
+      await result.current.setMeterRunning?.(false);
+    });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(mockedStartAudioMeter).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports whether a command succeeded", async () => {
+    mockedFetchAudioStatus.mockResolvedValue(status({ muted: false }));
+    mockedSetAudioMute.mockRejectedValueOnce(new Error("amixer failed")).mockResolvedValueOnce({
+      ok: true,
+      command: "mute",
+      value: true,
+      card: 0
+    });
+
+    const { result } = renderHook(() => useAudio());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let first: boolean | undefined;
+    let second: boolean | undefined;
+    await act(async () => {
+      first = await result.current.setMuted(true);
+    });
+    await act(async () => {
+      second = await result.current.setMuted(true);
+    });
+
+    expect(first).toBe(false);
+    expect(second).toBe(true);
   });
 
   it("loads audio status", async () => {

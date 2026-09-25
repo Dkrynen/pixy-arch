@@ -1,16 +1,27 @@
 import asyncio
+import logging
 import os
 import stat
 import time
 from pathlib import Path
+from typing import Any
 
-from pixypilot.config import automation_config
+from pydantic import ValidationError
+
+from pixypilot.config import AUTOMATION_AUTO_DEVICE, automation_config
 from pixypilot.core.commands import CommandError
 from pixypilot.domains.audio.service import get_audio_service
 from pixypilot.domains.automation.models import AutomationSettings, AutomationStatus
 from pixypilot.domains.pixy_hid.models import TrackingMode
 from pixypilot.domains.pixy_hid.service import PixyHidService, _hex_to_bytes, _parse_tracking_response, get_pixy_hid_service
-from pixypilot.domains.virtualcam.service import _find_loopback_device
+from pixypilot.domains.settings.service import SettingsService, get_settings_service
+from pixypilot.domains.virtualcam.service import (
+    VIDEO4LINUX_SYSFS,
+    _find_loopback_device,
+    _find_source_device,
+)
+
+_LOG = logging.getLogger("pixypilot.automation")
 
 # Always treated as non-call holders regardless of the configured exclude list:
 # PipeWire/WirePlumber keep the camera node open for device enumeration, and
@@ -73,12 +84,37 @@ def _scan_holders(
     return sorted(holders)
 
 
+def _load_settings(raw: dict[str, Any]) -> AutomationSettings:
+    """Settings from the config file. An invalid key falls back to its default
+    instead of stopping the backend from starting."""
+    try:
+        return AutomationSettings.model_validate(raw)
+    except ValidationError as exc:
+        invalid = {str(error["loc"][0]) for error in exc.errors() if error["loc"]}
+        _LOG.warning("ignoring invalid automation settings: %s", ", ".join(sorted(invalid)))
+    try:
+        return AutomationSettings.model_validate({k: v for k, v in raw.items() if k not in invalid})
+    except ValidationError:
+        return AutomationSettings()
+
+
+def _still_pixy_node(device: Path) -> bool:
+    try:
+        return "pixy" in (VIDEO4LINUX_SYSFS / device.name / "name").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+
+
 class AutomationService:
     # Edge-triggered only: no HID traffic is generated while the camera state
     # is stable, so the watcher never resets firmware timers or interferes
     # with the stream.
-    def __init__(self) -> None:
-        self.settings = AutomationSettings(**automation_config())
+    def __init__(self, settings_service: SettingsService | None = None) -> None:
+        self.settings = _load_settings(automation_config())
+        self._settings_service = settings_service
+        # "auto" resolution is cached: finding the capture node opens each
+        # candidate for VIDIOC_QUERYCAP, which is not worth doing every poll.
+        self._auto_device: Path | None = None
         self._task: asyncio.Task | None = None
         self._camera_in_use = False
         self._holders: list[str] = []
@@ -98,6 +134,10 @@ class AutomationService:
         )
 
     async def apply_settings(self, settings: AutomationSettings) -> AutomationStatus:
+        # Persist before applying: a user who turns automation off expects it
+        # to stay off after a restart. A failed write leaves runtime unchanged.
+        store = self._settings_service or get_settings_service()
+        store.write_patch({"automation": settings.model_dump(mode="json")})
         self.settings = settings
         if settings.enabled:
             await self.start()
@@ -125,16 +165,17 @@ class AutomationService:
 
     async def _watch_loop(self) -> None:
         idle_since: float | None = None
-        sink = _find_loopback_device()
-        sink_arg = str(sink).encode() if sink else None
+        sink: Path | None = None
         while True:
-            if sink_arg is None:
+            if sink is None:
                 # The loopback can appear after the watcher starts (module
                 # loaded late); retry until it shows so its writer is
                 # never mistaken for a call.
-                sink = _find_loopback_device()
-                sink_arg = str(sink).encode() if sink else None
-            self._holders = self._scan_all_holders(sink, sink_arg)
+                sink = await asyncio.to_thread(_find_loopback_device)
+            sink_arg = str(sink).encode() if sink else None
+            # The /proc walk stats every fd of every process: keep it off
+            # the event loop so API requests are not stalled each poll.
+            self._holders = await asyncio.to_thread(self._scan_all_holders, sink, sink_arg)
             in_use = bool(self._holders)
             now = time.monotonic()
             if in_use:
@@ -151,9 +192,23 @@ class AutomationService:
                     await self._on_close()
             await asyncio.sleep(self.settings.poll_seconds)
 
+    def _resolve_video_device(self) -> Path | None:
+        configured = self.settings.video_device
+        if configured != AUTOMATION_AUTO_DEVICE:
+            return Path(configured)
+        cached = self._auto_device
+        if cached is not None and _still_pixy_node(cached):
+            return cached
+        # No PIXY attached → watch nothing; /dev/video0 may be another camera.
+        self._auto_device = _find_source_device()
+        return self._auto_device
+
     def _scan_all_holders(self, sink: Path | None, sink_arg: bytes | None) -> list[str]:
+        device = self._resolve_video_device()
+        if device is None:
+            return []
         try:
-            rdev = os.stat(self.settings.video_device).st_rdev
+            rdev = os.stat(device).st_rdev
             holders = set(
                 _scan_holders(
                     rdev,

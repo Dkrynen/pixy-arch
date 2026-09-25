@@ -1,5 +1,7 @@
 EMEET PIXY on Ubuntu 24.04
 
+> Raw lab notebook from the original reverse-engineering sessions. Device paths such as `/dev/hidraw14` are from the machine the notes were taken on; yours will differ. The curated findings are in `docs/EMEET_PIXY_REVERSE_ENGINEERING.md` and `docs/EMEET_PIXY_HID_REFERENCE.md`.
+
 Findings:
 - Camera detected correctly by UVC.
 - USB ID:

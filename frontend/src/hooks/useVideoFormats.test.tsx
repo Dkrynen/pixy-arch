@@ -66,6 +66,31 @@ describe("useVideoFormats", () => {
     expect(result.current.selectedKey).toBe(formatKey(formats[1]));
   });
 
+  it("ignores a late format list for a device that is no longer selected", async () => {
+    let resolveA!: (value: typeof formats) => void;
+    mockedFetchVideoFormats.mockImplementation((deviceName: string) =>
+      deviceName === "video0"
+        ? new Promise((resolve) => {
+            resolveA = resolve;
+          })
+        : Promise.resolve([formats[2]])
+    );
+
+    const { result, rerender } = renderHook(({ device }) => useVideoFormats(device), {
+      initialProps: { device: "video0" as string | null }
+    });
+    rerender({ device: "video2" });
+    await waitFor(() => expect(result.current.formats).toEqual([formats[2]]));
+
+    await act(async () => {
+      resolveA(formats);
+    });
+
+    expect(result.current.formats).toEqual([formats[2]]);
+    expect(result.current.selectedKey).toBe(formatKey(formats[2]));
+    expect(result.current.isLoading).toBe(false);
+  });
+
   it("reverts the selected format when the backend rejects the change", async () => {
     mockedFetchVideoFormats.mockResolvedValue(formats);
     mockedSetVideoFormat.mockRejectedValue(new Error("Unable to set V4L2 format"));

@@ -1,6 +1,16 @@
+// UI smoke test: node scripts/smoke-ui.mjs [appUrl]
+// Screenshots go to PIXY_ARCH_SCREENSHOT_DIR, or the OS temp dir by default.
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { chromium } from "playwright";
 
-const appUrl = process.argv[2] ?? "http://127.0.0.1:8000/";
+const appUrl = process.argv[2] ?? process.env.PIXY_ARCH_URL ?? "http://127.0.0.1:8000/";
+const screenshotDir = process.env.PIXY_ARCH_SCREENSHOT_DIR ?? tmpdir();
+mkdirSync(screenshotDir, { recursive: true });
+const desktopShot = join(screenshotDir, "pixy-arch-desktop.png");
+const mobileShot = join(screenshotDir, "pixy-arch-mobile.png");
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -19,53 +29,53 @@ page.on("pageerror", (error) => logs.push(`pageerror: ${error.message}`));
 await page.goto(appUrl, { waitUntil: "load" });
 await page.getByRole("heading", { name: "Pixy Arch" }).waitFor({ state: "visible" });
 await page.getByRole("button", { name: /Refresh controls/i }).click();
-await page.waitForFunction(() => document.body.innerText.includes("Ready"));
-await page.getByRole("heading", { name: "PTZ Control" }).waitFor({ state: "visible" });
-await page.getByRole("heading", { name: "Image Control" }).waitFor({ state: "visible" });
-await page.getByRole("heading", { name: "Focus Control" }).waitFor({ state: "visible" });
-await page.getByRole("heading", { name: "Exposure Control" }).waitFor({ state: "visible" });
+// The app-bar chip reads "Connected" once a capture device is selected.
+await page.waitForFunction(() => document.body.innerText.includes("Connected"));
+await page.getByRole("heading", { name: "PTZ", exact: true }).waitFor({ state: "visible" });
+await page.getByRole("heading", { name: "Image", exact: true }).waitFor({ state: "visible" });
+await page.getByRole("heading", { name: "Focus", exact: true }).waitFor({ state: "visible" });
+await page.getByRole("heading", { name: "Exposure", exact: true }).waitFor({ state: "visible" });
 await page.getByRole("heading", { name: "Smart Pixy" }).waitFor({ state: "visible" });
-await page.getByText("Tracking & Follow").waitFor({ state: "visible" });
-await page.getByText("Gesture Control").waitFor({ state: "visible" });
+await page.getByText("Tracking & follow").waitFor({ state: "visible" });
+await page.getByText("Gesture control").waitFor({ state: "visible" });
 // Secondary sections ship collapsed; expanding one exercises the disclosure.
 await page.getByText("Orientation").click();
-await page.getByText("Auto Rotate").waitFor({ state: "visible" });
+await page.getByText("Auto rotate").waitFor({ state: "visible" });
 // View switching remounts the deck and re-collapses sections, so capture now.
-const hasAutoRotate = await page.evaluate(() => document.body.innerText.includes("Auto Rotate"));
-await page.screenshot({ path: "/tmp/pixypilot-desktop.png", fullPage: false });
+const hasAutoRotate = await page.evaluate(() => document.body.innerText.includes("Auto rotate"));
+await page.screenshot({ path: desktopShot, fullPage: false });
 
 // Diagnostics deck: exercised via the view switch, not visible by default.
 await page.getByRole("button", { name: /Diagnostics/i }).click();
-await page.getByRole("heading", { name: "Future Deck" }).waitFor({ state: "visible" });
+await page.getByRole("heading", { name: "UVC extension" }).waitFor({ state: "visible" });
 const diagnosticsText = await page.locator("body").innerText();
 await page.getByRole("button", { name: /Control Deck/i }).click();
-await page.getByRole("heading", { name: "PTZ Control" }).waitFor({ state: "visible" });
+await page.getByRole("heading", { name: "PTZ", exact: true }).waitFor({ state: "visible" });
 
 await page.setViewportSize({ width: 390, height: 900 });
 await page.waitForTimeout(250);
-await page.screenshot({ path: "/tmp/pixypilot-mobile.png", fullPage: false });
+await page.screenshot({ path: mobileShot, fullPage: false });
 
 const bodyText = await page.locator("body").innerText();
 const result = {
   title: await page.title(),
   url: page.url(),
   hasPixyArch: bodyText.includes("Pixy Arch"),
-  hasPtzControl: bodyText.includes("PTZ Control"),
-  hasImageControl: bodyText.includes("Image Control"),
-  hasFocusControl: bodyText.includes("Focus Control"),
-  hasExposureControl: bodyText.includes("Exposure Control"),
+  hasPtzControl: (await page.getByRole("heading", { name: "PTZ", exact: true }).count()) === 1,
+  hasImageControl: (await page.getByRole("heading", { name: "Image", exact: true }).count()) === 1,
+  hasFocusControl: (await page.getByRole("heading", { name: "Focus", exact: true }).count()) === 1,
+  hasExposureControl: (await page.getByRole("heading", { name: "Exposure", exact: true }).count()) === 1,
   hasSmartPixy: bodyText.includes("Smart Pixy"),
   hasTrackingFollow: bodyText.toLowerCase().includes("tracking & follow"),
-  hasGestureControl: bodyText.includes("Gesture Control"),
+  hasGestureControl: bodyText.includes("Gesture control"),
   hasAutoRotate,
-  // innerText reflects CSS text-transform; the panel renders as "FUTURE DECK".
-  hasFutureDeck: diagnosticsText.toLowerCase().includes("future deck"),
-  hasReadySignal: bodyText.includes("Ready"),
+  hasFutureDeck: diagnosticsText.toLowerCase().includes("uvc extension"),
+  hasReadySignal: bodyText.includes("Connected"),
   rangeCount: await page.locator('input[type="range"]').count(),
   toggleCount: await page.locator(".toggle-switch").count(),
   selectCount: await page.locator("select").count(),
   logs,
-  screenshots: ["/tmp/pixypilot-desktop.png", "/tmp/pixypilot-mobile.png"]
+  screenshots: [desktopShot, mobileShot]
 };
 
 await browser.close();

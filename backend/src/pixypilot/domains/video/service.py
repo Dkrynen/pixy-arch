@@ -1,6 +1,7 @@
 import asyncio
 import math
 import re
+import struct
 import subprocess
 import tempfile
 import time
@@ -35,7 +36,7 @@ async def _prepend_frame(first: bytes, rest: AsyncIterator[bytes]) -> AsyncItera
 
 class VideoService:
     def __init__(self, recordings_dir: Path | None = None) -> None:
-        self.recordings_dir = recordings_dir or _recordings_dir()
+        self._recordings_dir_override = recordings_dir
         self._recording_process: asyncio.subprocess.Process | None = None
         self._recording_stderr_path: str | None = None
         self._recording_status = VideoRecordingStatus(recording=False)
@@ -45,6 +46,15 @@ class VideoService:
         self._reaper_task: asyncio.Task[None] | None = None
         self._stream_lock = asyncio.Lock()
         self._recording_feed_task: asyncio.Task[None] | None = None
+        # Held across the whole start: two concurrent starts would otherwise
+        # both pass the "already running" check and one ffmpeg would leak.
+        self._recording_lock = asyncio.Lock()
+
+    @property
+    def recordings_dir(self) -> Path:
+        # Resolved per use so a storage.recordings change applies without a
+        # restart (the settings service clears the config cache on write).
+        return self._recordings_dir_override or _recordings_dir()
 
     async def mjpeg_stream(self, device_path: str, settings: VideoStreamSettings) -> AsyncIterator[bytes]:
         if settings.pixel_format.upper() == "MJPG":
@@ -98,6 +108,16 @@ class VideoService:
         settings: VideoStreamSettings,
         frame_source: AsyncIterator[bytes] | None = None,
     ) -> VideoRecordingStatus:
+        async with self._recording_lock:
+            return await self._start_recording_locked(device_name, device_path, settings, frame_source)
+
+    async def _start_recording_locked(
+        self,
+        device_name: str,
+        device_path: str,
+        settings: VideoStreamSettings,
+        frame_source: AsyncIterator[bytes] | None,
+    ) -> VideoRecordingStatus:
         await self._reap_finished_recording()
         if self._recording_process is not None:
             raise ValueError("A recording is already running")
@@ -114,10 +134,12 @@ class VideoService:
                 raise ValueError("virtual camera is not producing frames") from exc
             frame_source = _prepend_frame(first_frame, frame_source)
 
-        self.recordings_dir.mkdir(parents=True, exist_ok=True)
         started_at = datetime.now(UTC)
-        output_path = self.recordings_dir / (
-            f"pixypilot-{_slugify_device_name(device_name)}-{started_at.strftime('%Y%m%d-%H%M%S')}.mkv"
+        recordings_dir = self.recordings_dir
+        # Milliseconds keep back-to-back recordings from colliding on a name.
+        output_path = recordings_dir / (
+            f"pixy-arch-{_slugify_device_name(device_name)}-"
+            f"{started_at.strftime('%Y%m%d-%H%M%S')}-{started_at.microsecond // 1000:03d}.mkv"
         )
         # Relay-fed recording copies native MJPEG frames from the virtual-cam
         # tap — it never opens the loopback, whose single-reader slot stays
@@ -127,13 +149,21 @@ class VideoService:
             if frame_source is not None
             else build_record_command(device_path, settings, output_path)
         )
-        stderr_log = tempfile.NamedTemporaryFile(
-            mode="wb", prefix="pixypilot-record-", suffix=".log", delete=False
-        )
+        try:
+            recordings_dir.mkdir(parents=True, exist_ok=True)
+            stderr_log = tempfile.NamedTemporaryFile(
+                mode="wb", prefix="pixypilot-record-", suffix=".log", delete=False
+            )
+        except OSError as exc:
+            reason = f"recordings directory {recordings_dir} is not writable: {exc.strerror or exc}"
+            self._recording_status = VideoRecordingStatus(
+                recording=False, device_name=device_name, reason=reason
+            )
+            raise ValueError(reason) from exc
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
-                stdin=asyncio.subprocess.PIPE if frame_source is not None else None,
+                stdin=asyncio.subprocess.PIPE if frame_source is not None else asyncio.subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=stderr_log,
             )
@@ -156,9 +186,8 @@ class VideoService:
             self._recording_feed_task = asyncio.get_running_loop().create_task(
                 self._feed_recorder(process, frame_source)
             )
-        # Register before the spawn watch: a concurrent start must see the
-        # process (or both survive and one leaks untracked), and stop() must
-        # be able to kill it during the watch window.
+        # Register before the spawn watch: stop() must be able to kill the
+        # process during the watch window.
         self._recording_process = process
         self._recording_stderr_path = stderr_log.name
         self._recording_status = VideoRecordingStatus(
@@ -266,9 +295,10 @@ class VideoService:
     async def _native_mjpeg_stream(self, device_path: str, settings: VideoStreamSettings) -> AsyncIterator[bytes]:
         try:
             capture = await self._start_native_stream(device_path, settings)
-        except OSError:
-            # Device node missing or busy: finish the response cleanly so the
-            # client can surface a retryable "stream unavailable" state.
+        except (OSError, RuntimeError, ValueError, struct.error):
+            # Device node missing/busy, or the driver rejected the requested
+            # mode: finish the response cleanly so the client can surface a
+            # retryable "stream unavailable" state instead of a 500.
             return
         try:
             while True:
@@ -297,15 +327,28 @@ class VideoService:
             await asyncio.to_thread(stale_capture.close)
 
         capture = NativeMjpegCapture(device_path, settings)
-        await asyncio.to_thread(capture.open)
-        async with self._stream_lock:
-            stale_capture = self._native_streams.pop(device_path, None)
-            if stale_capture is not None:
-                self._stream_progress.pop(stale_capture, None)
-                await asyncio.to_thread(stale_capture.close)
-            self._native_streams[device_path] = capture
-            self._stream_progress[capture] = time.monotonic()
-            self._ensure_reaper()
+        opening = asyncio.ensure_future(asyncio.to_thread(capture.open))
+        try:
+            await asyncio.shield(opening)
+        except asyncio.CancelledError:
+            # Cancelled (first-frame timeout, client gone) while the open is
+            # still running in its thread: close the capture once it lands,
+            # or its fd and the streaming camera leak.
+            opening.add_done_callback(lambda task: _close_after_open(task, capture))
+            raise
+        try:
+            async with self._stream_lock:
+                stale_capture = self._native_streams.pop(device_path, None)
+                if stale_capture is not None:
+                    self._stream_progress.pop(stale_capture, None)
+                    await asyncio.to_thread(stale_capture.close)
+                self._native_streams[device_path] = capture
+                self._stream_progress[capture] = time.monotonic()
+                self._ensure_reaper()
+        except BaseException:
+            if self._native_streams.get(device_path) is not capture:
+                asyncio.get_running_loop().run_in_executor(None, capture.close)
+            raise
         return capture
 
     async def _unregister_native_stream(self, device_path: str, capture: NativeMjpegCapture) -> None:
@@ -327,17 +370,24 @@ class VideoService:
 
         process = await asyncio.create_subprocess_exec(
             *command,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
-        async with self._stream_lock:
-            stale_processes = self._stream_processes.pop(device_path, [])
-            for stale_process in stale_processes:
-                self._stream_progress.pop(stale_process, None)
-                await _stop_process(stale_process)
-            self._stream_processes[device_path] = [process]
-            self._stream_progress[process] = time.monotonic()
-            self._ensure_reaper()
+        try:
+            async with self._stream_lock:
+                stale_processes = self._stream_processes.pop(device_path, [])
+                for stale_process in stale_processes:
+                    self._stream_progress.pop(stale_process, None)
+                    await _stop_process(stale_process)
+                self._stream_processes[device_path] = [process]
+                self._stream_progress[process] = time.monotonic()
+                self._ensure_reaper()
+        except BaseException:
+            # Cancelled before registration: nothing else would ever reap it.
+            if process not in self._stream_processes.get(device_path, []) and process.returncode is None:
+                process.kill()
+            raise
         return process
 
     async def _unregister_stream(self, device_path: str, process: asyncio.subprocess.Process) -> None:
@@ -478,6 +528,9 @@ def build_input_args(device_path: str, settings: VideoStreamSettings) -> list[st
     return [
         "ffmpeg",
         "-hide_banner",
+        # Device-fed ffmpeg never reads stdin; without this it can swallow
+        # keystrokes or stop on SIGTTIN when the backend runs in a terminal.
+        "-nostdin",
         "-loglevel",
         "error",
         "-f",
@@ -611,6 +664,12 @@ def _read_stderr_tail(path: str | None, max_bytes: int = 4000) -> str:
         return ""
     text = data.decode("utf-8", errors="replace").strip()
     return text[-max_bytes:]
+
+
+def _close_after_open(opening: "asyncio.Future[None]", capture: NativeMjpegCapture) -> None:
+    if opening.cancelled() or opening.exception() is not None:
+        return  # a failed open already closed itself
+    asyncio.get_running_loop().run_in_executor(None, capture.close)
 
 
 def _remove_quietly(path: str | None) -> None:

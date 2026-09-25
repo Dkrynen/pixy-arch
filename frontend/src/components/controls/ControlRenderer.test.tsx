@@ -42,6 +42,33 @@ describe("ControlRenderer", () => {
     expect(onSetValue).toHaveBeenCalledWith(0);
   });
 
+  it("names toggle, menu, and range inputs after their control", () => {
+    render(
+      <>
+        <ControlRenderer control={baseControl({ name: "hdr", label: "HDR", kind: "bool", value: 0 })} disabled={false} onSetValue={vi.fn()} />
+        <ControlRenderer
+          control={baseControl({
+            name: "power_line_frequency",
+            label: "Power Line Frequency",
+            kind: "menu",
+            value: 1,
+            menu: [
+              { value: 0, label: "Disabled" },
+              { value: 1, label: "50 Hz" }
+            ]
+          })}
+          disabled={false}
+          onSetValue={vi.fn()}
+        />
+        <ControlRenderer control={baseControl({ kind: "int" })} disabled={false} onSetValue={vi.fn()} />
+      </>
+    );
+
+    expect(screen.getByRole("button", { name: "HDR" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("combobox", { name: "Anti-flicker" })).toHaveValue("1");
+    expect(screen.getByRole("slider", { name: "Brightness" })).toHaveValue("10");
+  });
+
   it("renders menu controls with option labels", () => {
     render(
       <ControlRenderer

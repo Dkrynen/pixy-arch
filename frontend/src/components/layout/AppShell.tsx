@@ -1,4 +1,4 @@
-import { RefreshCw, Radar, SlidersHorizontal, FlaskConical, Settings } from "lucide-react";
+import { FlaskConical, RefreshCw, Settings, SlidersHorizontal } from "lucide-react";
 import { useState } from "react";
 
 import { countActiveControls } from "../../domains/controls/grouping";
@@ -33,6 +33,14 @@ type Props = {
   controlPresets: UseControlPresetsResult;
 };
 
+type View = "control" | "diagnostics" | "settings";
+
+const VIEWS: { id: View; label: string; icon: typeof SlidersHorizontal }[] = [
+  { id: "control", label: "Control Deck", icon: SlidersHorizontal },
+  { id: "diagnostics", label: "Diagnostics", icon: FlaskConical },
+  { id: "settings", label: "Settings", icon: Settings }
+];
+
 export function AppShell({
   devices,
   controls,
@@ -47,110 +55,119 @@ export function AppShell({
   controlPresets
 }: Props) {
   const activeControls = countActiveControls(controls.controls);
-  const [view, setView] = useState<"control" | "diagnostics" | "settings">("control");
+  const [view, setView] = useState<View>("control");
+  const isRecording = videoCapture.status?.recording === true;
+  const isPrivacy = pixyHid.deviceTrackingState === "privacy";
+  const offline = devices.error !== null && devices.devices.length === 0;
+  const connection = offline
+    ? { tone: "danger" as const, label: "Offline", title: devices.error ?? "Backend unreachable" }
+    : devices.selectedDevice
+      ? {
+          tone: "good" as const,
+          label: "Connected",
+          title: `${devices.selectedDevice.name.split(":")[0]} on ${devices.selectedDevice.path} · ${activeControls} of ${controls.controls.length} controls active`
+        }
+      : { tone: "warn" as const, label: "No camera", title: "Connect the PIXY over USB" };
+
+  const deviceBay = (
+    <DeviceRail devices={devices} controls={controls} videoFormats={videoFormats} pixyHid={pixyHid} />
+  );
 
   return (
-    <main className="app-shell">
+    <div className="app-shell">
       <header className="topbar">
-        <div className="brand-lockup">
-          <div className="brand-mark" aria-hidden="true">
-            <Radar size={24} />
+        <div className="topbar-inner">
+          <div className="brand-lockup">
+            <div className="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
+                <circle cx="12" cy="12" r="7.25" stroke="currentColor" strokeWidth="2" />
+                <circle cx="12" cy="12" r="2.75" fill="currentColor" />
+                <circle cx="12" cy="3.4" r="1.4" fill="currentColor" />
+              </svg>
+            </div>
+            <div className="brand-text">
+              <h1>Pixy Arch</h1>
+              <p>EMEET PIXY control deck</p>
+            </div>
           </div>
-          <div>
-            <h1>Pixy Arch</h1>
-            <p>Linux control deck for EMEET PIXY</p>
+          <div className="view-switch" role="group" aria-label="Workspace view">
+            {VIEWS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                className={view === id ? "is-selected" : ""}
+                onClick={() => setView(id)}
+                aria-pressed={view === id}
+              >
+                <Icon size={15} aria-hidden="true" />
+                {label}
+              </button>
+            ))}
           </div>
-        </div>
-        <div className="topbar-actions">
-          <div className="view-switch" aria-label="Workspace view">
+          <div className="topbar-actions">
+            {isRecording && <StatusPill tone="danger" label="Recording" pulse title={videoCapture.status?.path ?? undefined} />}
+            {isPrivacy && <StatusPill tone="warn" label="Privacy" title="Lens closed — privacy mode is on" />}
+            <StatusPill tone={connection.tone} label={connection.label} title={connection.title} />
             <button
-              className={view === "control" ? "is-selected" : ""}
-              onClick={() => setView("control")}
-              aria-pressed={view === "control"}
+              className="icon-button ghost-button"
+              onClick={() => void controls.refresh()}
+              title="Refresh controls"
+              aria-label="Refresh controls"
             >
-              <SlidersHorizontal size={15} />
-              Control Deck
-            </button>
-            <button
-              className={view === "diagnostics" ? "is-selected" : ""}
-              onClick={() => setView("diagnostics")}
-              aria-pressed={view === "diagnostics"}
-            >
-              <FlaskConical size={15} />
-              Diagnostics
-            </button>
-            <button
-              className={view === "settings" ? "is-selected" : ""}
-              onClick={() => setView("settings")}
-              aria-pressed={view === "settings"}
-            >
-              <Settings size={15} />
-              Settings
+              <RefreshCw size={16} />
             </button>
           </div>
-          <StatusPill
-            tone={devices.selectedDevice ? "good" : "warn"}
-            label={devices.selectedDevice ? "Device linked" : "No device"}
-          />
-          <StatusPill tone="info" label={`${activeControls}/${controls.controls.length} active`} />
-          <button
-            className="icon-button"
-            onClick={() => void controls.refresh()}
-            title="Refresh controls"
-            aria-label="Refresh controls"
-          >
-            <RefreshCw size={18} />
-          </button>
         </div>
       </header>
 
-      <section className={`command-grid view-${view}`}>
-        <DeviceRail devices={devices} controls={controls} videoFormats={videoFormats} pixyHid={pixyHid} />
-
-        <div className="main-console">
-          {controls.error && (
-            <div className="error-strip" role="alert">
-              {controls.error}
-            </div>
-          )}
-          {devices.error && (
-            <div className="error-strip" role="alert">
-              {devices.error}
-            </div>
-          )}
-          {controlPresets.error && (
-            <div className="error-strip" role="alert">
-              {controlPresets.error}
-            </div>
-          )}
-          {view === "control" ? (
-            <ControlDeck
-              deviceName={devices.selectedDeviceName}
-              controls={controls}
-              videoFormats={videoFormats}
-              videoCapture={videoCapture}
-              pixyHid={pixyHid}
-              audio={audio}
-              virtualCam={virtualCam}
-              firmware={firmware}
-              privacySafety={privacySafety}
-              controlPresets={controlPresets}
-            />
-          ) : view === "diagnostics" ? (
-            <DiagnosticsDeck
-              deviceName={devices.selectedDeviceName}
-              controls={controls}
-              videoFormats={videoFormats}
-              videoCapture={videoCapture}
-              pixyHid={pixyHid}
-              audio={audio}
-              privacySafety={privacySafety}
-            />
-          ) : (
-            <SettingsDeck privacySafety={privacySafety} automation={automation} />
-          )}
-        </div>
-      </section>
-    </main>
+      <main className={`workspace view-${view}`}>
+        {(controls.error || devices.error || controlPresets.error) && (
+          <div className="error-stack">
+            {controls.error && (
+              <div className="error-strip" role="alert">
+                {controls.error}
+              </div>
+            )}
+            {devices.error && (
+              <div className="error-strip" role="alert">
+                {devices.error}
+              </div>
+            )}
+            {controlPresets.error && (
+              <div className="error-strip" role="alert">
+                {controlPresets.error}
+              </div>
+            )}
+          </div>
+        )}
+        {view === "control" ? (
+          <ControlDeck
+            deviceName={devices.selectedDeviceName}
+            deviceBay={deviceBay}
+            controls={controls}
+            videoFormats={videoFormats}
+            videoCapture={videoCapture}
+            pixyHid={pixyHid}
+            audio={audio}
+            virtualCam={virtualCam}
+            firmware={firmware}
+            privacySafety={privacySafety}
+            controlPresets={controlPresets}
+          />
+        ) : view === "diagnostics" ? (
+          <DiagnosticsDeck
+            deviceName={devices.selectedDeviceName}
+            deviceBay={deviceBay}
+            controls={controls}
+            videoFormats={videoFormats}
+            videoCapture={videoCapture}
+            pixyHid={pixyHid}
+            audio={audio}
+            privacySafety={privacySafety}
+          />
+        ) : (
+          <SettingsDeck privacySafety={privacySafety} automation={automation} />
+        )}
+      </main>
+    </div>
   );
 }

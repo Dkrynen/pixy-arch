@@ -12,8 +12,24 @@ const LABEL_OVERRIDES: Record<string, string> = {
   gain: "ISO",
   hue: "Tone",
   white_balance_automatic: "AWB",
-  white_balance_temperature: "WB"
+  white_balance_temperature: "WB",
+  // Driver labels that read as "Category, Detail" or run long in a row.
+  focus_automatic_continuous: "Focus Mode",
+  focus_absolute: "Focus Position",
+  exposure_dynamic_framerate: "Dynamic Framerate",
+  backlight_compensation: "Backlight",
+  power_line_frequency: "Anti-flicker"
 };
+
+const VALUE_UNITS: Record<string, string> = {
+  white_balance_temperature: "K"
+};
+
+/** Readout for a numeric control value, with a unit where the driver implies one ("4600 K"). */
+export function controlNumberText(controlName: string, value: number): string {
+  const unit = VALUE_UNITS[controlName];
+  return unit ? `${value} ${unit}` : String(value);
+}
 
 export function controlDisplayLabel(control: V4L2Control): string {
   return LABEL_OVERRIDES[control.name] ?? control.label;
@@ -119,4 +135,13 @@ function shortDependencyLabel(label: string): string {
     return "Auto";
   }
   return label.replace(" Priority Mode", "").replace(" Mode", "").trim();
+}
+
+/** Tooltip carrying the raw V4L2 details for power users. */
+export function rawControlTitle(control: Pick<V4L2Control, "name" | "value" | "min" | "max" | "step">): string {
+  const range = control.min !== null && control.min !== undefined && control.max !== null && control.max !== undefined
+    ? ` · range ${control.min}..${control.max}`
+    : "";
+  const step = control.step && control.step > 1 ? ` · step ${control.step}` : "";
+  return `${control.name} · raw ${control.value}${range}${step}`;
 }
