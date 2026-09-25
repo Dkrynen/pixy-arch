@@ -60,6 +60,7 @@ def test_video_input_command_maps_v4l2_formats_to_ffmpeg() -> None:
     assert command == [
         "ffmpeg",
         "-hide_banner",
+        "-nostdin",
         "-loglevel",
         "error",
         "-f",
@@ -342,7 +343,7 @@ async def test_start_recording_slugifies_device_name_in_filename(monkeypatch, tm
 
     assert status.path is not None
     filename = status.path.rsplit("/", 1)[-1]
-    assert filename.startswith("pixypilot-EMEET-PIXY-EMEET-PIXY-")
+    assert filename.startswith("pixy-arch-EMEET-PIXY-EMEET-PIXY-")
     assert ":" not in filename and " " not in filename
 
 

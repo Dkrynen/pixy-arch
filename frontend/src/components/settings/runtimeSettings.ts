@@ -7,10 +7,15 @@ export type RuntimeSetting = {
   value: string;
   detail: string;
   group: string;
-  apply: (value: string) => AppSettingsUpdate;
+  /** Builds the PATCH body; absent for rows the API does not accept (YAML-only). */
+  apply?: (value: string) => AppSettingsUpdate;
+  /** Shown instead of an edit button on display-only rows. */
+  readOnlyHint?: string;
   inputMode?: "text" | "number" | "select";
   options?: { label: string; value: string }[];
 };
+
+export const YAML_ONLY_HINT = "Edit config/pixypilot.yaml to change";
 
 export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["settings"]>): RuntimeSetting[] {
   return [
@@ -65,17 +70,17 @@ export function runtimeSettings(settings: NonNullable<UsePrivacySafetyResult["se
       id: "frontend-dist",
       label: "UI dist",
       value: settings.frontend.dist_path,
-      detail: "restart",
+      detail: "yaml",
       group: "Frontend",
-      apply: (value) => ({ frontend: { dist: cleanText(value, settings.frontend.dist_path) } })
+      readOnlyHint: YAML_ONLY_HINT
     },
     {
       id: "presets",
       label: "Presets",
       value: settings.storage.presets_path,
-      detail: "live",
+      detail: "yaml",
       group: "Storage",
-      apply: (value) => ({ storage: { presets: cleanText(value, settings.storage.presets_path) } })
+      readOnlyHint: YAML_ONLY_HINT
     },
     {
       id: "recordings",
@@ -126,16 +131,48 @@ export function displayRuntimeValue(row: RuntimeSetting) {
 }
 
 export function runtimeDraftIsValid(row: RuntimeSetting, draft: string) {
+  if (!row.apply) {
+    return false;
+  }
   if (row.inputMode === "number") {
     const parsed = Number(draft);
     const max = row.id === "hid-gap" ? 1000 : 65535;
     const min = row.id === "hid-gap" ? 0 : 1;
     return Number.isInteger(parsed) && parsed >= min && parsed <= max;
   }
-  if (row.id !== "hid-path" && row.inputMode !== "select") {
+  if (row.id === "server-host") {
+    return isValidBindHost(draft);
+  }
+  if (row.id === "hid-path") {
+    // Mirrors the API: a /dev/hidrawN node, or empty for auto-detect.
+    const trimmed = draft.trim();
+    return trimmed === "" || /^\/dev\/hidraw\d+$/.test(trimmed);
+  }
+  if (row.inputMode !== "select") {
     return draft.trim().length > 0;
   }
   return true;
+}
+
+const IPV4_PATTERN = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+
+/** The API only binds to an IP literal or `localhost`; the backend has the final say. */
+export function isValidBindHost(value: string): boolean {
+  const host = value.trim();
+  if (host.toLowerCase() === "localhost" || IPV4_PATTERN.test(host)) {
+    return true;
+  }
+  // IPv6: hex groups and colons (optionally an embedded IPv4 tail or %zone).
+  return host.includes(":") && /^[0-9a-f:.]+(%[\w.-]+)?$/i.test(host);
+}
+
+/** True for hosts only this machine can reach (127.0.0.0/8, ::1, localhost). */
+export function isLoopbackHost(value: string): boolean {
+  const host = value.trim().toLowerCase();
+  if (host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1") {
+    return true;
+  }
+  return IPV4_PATTERN.test(host) && host.startsWith("127.");
 }
 
 function cleanText(value: string, fallback: string) {

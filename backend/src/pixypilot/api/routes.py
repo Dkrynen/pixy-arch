@@ -1,5 +1,6 @@
 import asyncio
 import os
+import struct
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -27,7 +28,12 @@ from pixypilot.domains.firmware.models import FirmwareStatus
 from pixypilot.domains.firmware.service import FirmwareService, get_firmware_service
 from pixypilot.domains.hotplug.service import HotplugService, get_hotplug_service
 from pixypilot.domains.pcap_import.models import PcapImportRecord
-from pixypilot.domains.pcap_import.service import PcapImportService, get_pcap_import_service
+from pixypilot.domains.pcap_import import service as pcap_import_service
+from pixypilot.domains.pcap_import.service import (
+    CaptureTooLargeError,
+    PcapImportService,
+    get_pcap_import_service,
+)
 from pixypilot.domains.pixy_hid.models import (
     AudioModeRequest,
     AutoPrivacyRequest,
@@ -65,6 +71,11 @@ from pixypilot.domains.v4l2.models import (
 )
 from pixypilot.domains.v4l2.service import V4L2Service, get_v4l2_service
 from pixypilot.domains.video.models import (
+    MAX_FRAME_INTERVAL_100NS,
+    MAX_STREAM_DIMENSION,
+    MAX_STREAM_FPS,
+    MIN_FRAME_INTERVAL_100NS,
+    MIN_STREAM_FPS,
     VideoRecordingRequest,
     VideoRecordingStatus,
     VideoStreamStopResult,
@@ -116,6 +127,8 @@ async def update_settings(
         return await service.update_settings(request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"could not write the config file: {exc}") from exc
 
 
 @router.get("/control-presets", response_model=list[ControlPreset])
@@ -134,7 +147,11 @@ async def create_control_preset(
     request: ControlPresetCreateRequest,
     service: ControlPresetService = Depends(get_control_preset_service),
 ) -> ControlPreset:
-    return await service.create_preset(request)
+    try:
+        return await service.create_preset(request)
+    except ValueError as exc:
+        # The existing presets file is unreadable (corrupt YAML or schema).
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.delete("/control-presets/{preset_id}", response_model=ControlPresetDeleteResult)
@@ -256,6 +273,9 @@ async def upload_pcap_import(
     source: str = Query(default="windows"),
     service: PcapImportService = Depends(get_pcap_import_service),
 ) -> PcapImportRecord:
+    declared_size = request.headers.get("content-length", "")
+    if declared_size.isdigit() and int(declared_size) > pcap_import_service.MAX_CAPTURE_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail=pcap_import_service.capture_too_large_message())
     try:
         return await service.save_capture(
             filename=filename,
@@ -264,6 +284,8 @@ async def upload_pcap_import(
             notes=notes,
             source=source,
         )
+    except CaptureTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -286,7 +308,7 @@ async def _loopback_substitute(
         pixel_format=status.output_pixel_format or "YUYV",
         width=status.output_width or 1280,
         height=status.output_height or 720,
-        fps=status.fps or 30,
+        fps=min(max(status.fps or 30, MIN_STREAM_FPS), MAX_STREAM_FPS),
     )
     return status.sink_path, settings
 
@@ -312,10 +334,12 @@ async def _prefixed_stream(first: bytes, chunks: AsyncIterator[bytes]) -> AsyncI
 async def stream_video(
     device_name: str,
     pixel_format: str = Query(default="MJPG"),
-    width: int = Query(default=1280, ge=1),
-    height: int = Query(default=720, ge=1),
-    fps: float = Query(default=30, gt=0),
-    frame_interval_100ns: int | None = Query(default=None, gt=0),
+    width: int = Query(default=1280, ge=1, le=MAX_STREAM_DIMENSION),
+    height: int = Query(default=720, ge=1, le=MAX_STREAM_DIMENSION),
+    fps: float = Query(default=30, ge=MIN_STREAM_FPS, le=MAX_STREAM_FPS),
+    frame_interval_100ns: int | None = Query(
+        default=None, ge=MIN_FRAME_INTERVAL_100NS, le=MAX_FRAME_INTERVAL_100NS
+    ),
     v4l2_service: V4L2Service = Depends(get_v4l2_service),
     video_service: VideoService = Depends(get_video_service),
     virtualcam_service: VirtualCamService = Depends(get_virtualcam_service),
@@ -365,6 +389,9 @@ async def stream_video(
             status_code=503,
             detail="camera is not producing frames (device busy or unreadable)",
         ) from exc
+    except (OSError, RuntimeError, ValueError, struct.error) as exc:
+        # The driver refused the requested mode or capture setup failed.
+        raise HTTPException(status_code=503, detail=f"camera stream could not be started: {exc}") from exc
     return StreamingResponse(
         _prefixed_stream(first_chunk, stream),
         media_type="multipart/x-mixed-replace; boundary=frame",
@@ -922,7 +949,12 @@ async def automation_settings(
     request: AutomationSettings,
     service: AutomationService = Depends(get_automation_service),
 ) -> AutomationStatus:
-    return await service.apply_settings(request)
+    try:
+        return await service.apply_settings(request)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=500, detail=f"automation settings could not be saved: {exc}"
+        ) from exc
 
 
 @router.get("/firmware/status", response_model=FirmwareStatus)

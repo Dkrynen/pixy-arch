@@ -488,6 +488,41 @@ describe("usePixyHid", () => {
     expect(result.current.lastCommand).toBe("ptz-vector:30,-30,0");
   });
 
+  it("resolves commands to true on success and false on failure", async () => {
+    mockedFetchPixyHidStatus.mockResolvedValue({
+      available: true,
+      path: "/dev/hidraw14",
+      readable: true,
+      writable: true,
+      reason: null,
+      known_controls: ["ptz_vector"]
+    });
+    mockDeviceState();
+    mockNoQueryResponses();
+    mockedSendPixyPtzVector
+      .mockRejectedValueOnce(new Error("HID write timed out"))
+      .mockResolvedValueOnce({ ok: true, command: "ptz_vector", value: "0,0,0", path: "/dev/hidraw14" });
+
+    const { result } = renderHook(() => usePixyHid());
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let failed: boolean | undefined;
+    await act(async () => {
+      failed = await result.current.sendPtzVector({ x: 0, y: 0, z: 0 });
+    });
+    expect(failed).toBe(false);
+    expect(result.current.error).toBe("HID write timed out");
+    expect(result.current.lastCommand).toBeNull();
+
+    let succeeded: boolean | undefined;
+    await act(async () => {
+      succeeded = await result.current.sendPtzVector({ x: 0, y: 0, z: 0 });
+    });
+    expect(succeeded).toBe(true);
+    expect(result.current.error).toBeNull();
+    expect(result.current.lastCommand).toBe("ptz-vector:0,0,0");
+  });
+
   it("sends degree-based HID PTZ relative commands when requested", async () => {
     mockedFetchPixyHidStatus.mockResolvedValue({
       available: true,

@@ -138,6 +138,7 @@ type Snapshot = {
   meterRunning: boolean | null;
   audioError: string | null;
   startupPrivacyState: string;
+  privacyCommandState: string;
   settingsError: string | null;
 };
 
@@ -170,16 +171,22 @@ function snapshotOf(sources: CommandLogSources): Snapshot {
     meterRunning: sources.audio.status?.meter_running ?? null,
     audioError: sources.audio.error,
     startupPrivacyState: sources.privacySafety.startupPrivacyState,
+    privacyCommandState: sources.privacySafety.privacyCommandState,
     settingsError: sources.privacySafety.settingsError
   };
 }
 
 const STARTUP_PRIVACY_MESSAGES: Record<string, { message: string; tone: CommandLogTone }> = {
-  disabled: { message: "startup privacy disabled", tone: "info" },
-  "waiting-for-hid": { message: "startup privacy waiting for hid", tone: "info" },
-  sending: { message: "startup privacy sending", tone: "info" },
-  sent: { message: "startup privacy applied", tone: "ok" },
-  failed: { message: "startup privacy failed", tone: "error" }
+  enabled: { message: "startup privacy on (applied by the service at boot)", tone: "info" },
+  disabled: { message: "startup privacy off", tone: "info" },
+  unknown: { message: "startup privacy setting unavailable", tone: "warn" }
+};
+
+const PRIVACY_COMMAND_MESSAGES: Record<string, { message: string; tone: CommandLogTone }> = {
+  sending: { message: "privacy sending", tone: "info" },
+  applied: { message: "privacy on, mic muted", tone: "ok" },
+  "mic-failed": { message: "privacy on, mic mute failed", tone: "warn" },
+  failed: { message: "privacy command failed", tone: "error" }
 };
 
 function diffSnapshots(prev: Snapshot | undefined, next: Snapshot): void {
@@ -276,6 +283,12 @@ function diffSnapshots(prev: Snapshot | undefined, next: Snapshot): void {
 
   if (!firstPass && next.startupPrivacyState !== was.startupPrivacyState) {
     const entry = STARTUP_PRIVACY_MESSAGES[next.startupPrivacyState];
+    if (entry) {
+      appendCommandLog({ category: "safety", message: entry.message, tone: entry.tone });
+    }
+  }
+  if (!firstPass && next.privacyCommandState !== was.privacyCommandState) {
+    const entry = PRIVACY_COMMAND_MESSAGES[next.privacyCommandState];
     if (entry) {
       appendCommandLog({ category: "safety", message: entry.message, tone: entry.tone });
     }

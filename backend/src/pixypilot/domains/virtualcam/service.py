@@ -11,14 +11,20 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pixypilot.domains.video.service import _jpeg_frames, get_video_service
-
 from pixypilot.config import (
     virtualcam_device,
     virtualcam_idle_grace_seconds,
-    virtualcam_label,
+    virtualcam_labels,
     virtualcam_on_demand,
 )
+from pixypilot.core.runtime_dir import runtime_dir
+from pixypilot.domains.v4l2.native import (
+    V4L2_CAP_DEVICE_CAPS,
+    V4L2_CAP_VIDEO_CAPTURE,
+    V4L2_CAPABILITY_SIZE,
+    VIDIOC_QUERYCAP,
+)
+from pixypilot.domains.video.service import _jpeg_frames, get_video_service
 from pixypilot.domains.virtualcam.models import (
     VirtualCamActionResult,
     VirtualCamStartRequest,
@@ -97,6 +103,7 @@ def build_ffmpeg_command(
     return [
         "ffmpeg",
         "-hide_banner",
+        "-nostdin",
         "-loglevel",
         "error",
         "-f",
@@ -139,6 +146,7 @@ def build_standby_command(
     return [
         "ffmpeg",
         "-hide_banner",
+        "-nostdin",
         "-loglevel",
         "error",
         "-re",
@@ -162,37 +170,100 @@ def build_standby_command(
     ]
 
 
+# v4l2loopback reports this as its VIDIOC_QUERYCAP driver name.
+_LOOPBACK_DRIVER = "v4l2 loopback"
+
+
+def _video_nodes() -> list[Path]:
+    """sysfs video4linux entries in numeric order (video2 before video10)."""
+    if not VIDEO4LINUX_SYSFS.is_dir():
+        return []
+    entries = [entry for entry in VIDEO4LINUX_SYSFS.iterdir() if entry.name.startswith("video")]
+
+    def node_number(entry: Path) -> tuple[int, str]:
+        digits = entry.name[len("video"):]
+        return (int(digits), entry.name) if digits.isdigit() else (1 << 30, entry.name)
+
+    return sorted(entries, key=node_number)
+
+
+def _node_name(entry: Path) -> str | None:
+    try:
+        return (entry / "name").read_text(encoding="utf-8").strip().lower()
+    except OSError:
+        return None
+
+
+def _is_loopback_name(name: str) -> bool:
+    if "loopback" in name:
+        return True
+    return any(label.lower() in name for label in virtualcam_labels())
+
+
+def _query_capabilities(device: Path) -> tuple[str, bool] | None:
+    """(driver, supports VIDEO_CAPTURE) via VIDIOC_QUERYCAP; None if unreadable.
+
+    Opening a node for QUERYCAP does not start streaming, so it never claims
+    the single-consumer camera.
+    """
+    try:
+        fd = os.open(device, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError:
+        return None
+    try:
+        buffer = bytearray(V4L2_CAPABILITY_SIZE)
+        fcntl.ioctl(fd, VIDIOC_QUERYCAP, buffer, True)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    driver = bytes(buffer[0:16]).split(b"\0", 1)[0].decode("ascii", errors="replace")
+    capabilities, device_caps = struct.unpack_from("=II", buffer, 84)
+    effective = device_caps if capabilities & V4L2_CAP_DEVICE_CAPS else capabilities
+    return driver, bool(effective & V4L2_CAP_VIDEO_CAPTURE)
+
+
+def _sysfs_index(entry: Path) -> int | None:
+    try:
+        return int((entry / "index").read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
 def _find_loopback_device() -> Path | None:
     override = virtualcam_device()
     if override is not None and override.exists():
         # Canonicalize so a configured alias (/dev/v4l/by-path/*) matches
         # both the feeder's argv and /proc fd readlinks in holder scans.
         return override.resolve()
-    label = virtualcam_label().lower()
-    if not VIDEO4LINUX_SYSFS.is_dir():
-        return None
-    for entry in sorted(VIDEO4LINUX_SYSFS.iterdir()):
-        name_file = entry / "name"
-        try:
-            name = name_file.read_text(encoding="utf-8").strip().lower()
-        except OSError:
-            continue
-        if label in name or "v4l2loopback" in name or "loopback" in name:
+    for entry in _video_nodes():
+        name = _node_name(entry)
+        if name is not None and _is_loopback_name(name):
             return Path("/dev") / entry.name
     return None
 
 
 def _find_source_device() -> Path | None:
-    if not VIDEO4LINUX_SYSFS.is_dir():
-        return None
-    for entry in sorted(VIDEO4LINUX_SYSFS.iterdir()):
-        name_file = entry / "name"
-        try:
-            name = name_file.read_text(encoding="utf-8").strip().lower()
-        except OSError:
+    """The EMEET PIXY's video-capture node.
+
+    The sink's label ("Pixy Arch Virtual") also contains "pixy", and UVC
+    exposes a metadata node next to the capture node, so both are skipped.
+    """
+    for entry in _video_nodes():
+        name = _node_name(entry)
+        if name is None or "pixy" not in name or _is_loopback_name(name):
             continue
-        if "pixy" in name:
-            return Path("/dev") / entry.name
+        device = Path("/dev") / entry.name
+        caps = _query_capabilities(device)
+        if caps is None:
+            # Unopenable (permissions): UVC puts the capture node at index 0
+            # and its metadata node at 1, so fall back to that.
+            if _sysfs_index(entry) in (None, 0):
+                return device
+            continue
+        driver, is_capture = caps
+        if is_capture and driver != _LOOPBACK_DRIVER:
+            return device
     return None
 
 
@@ -325,6 +396,11 @@ def _read_stderr_tail(path: str | None, max_bytes: int = 4000) -> str:
         return ""
     text = data.decode("utf-8", errors="replace").strip()
     return text[-max_bytes:]
+
+
+def _write_standby_frame(path: Path, width: int, height: int) -> None:
+    # One dark YUYV frame: Y=0x10 (limited-range black), U=V=0x80 (neutral).
+    path.write_bytes(b"\x10\x80\x10\x80" * (width * height // 2))
 
 
 def _remove_quietly(path: str | Path | None) -> None:
@@ -736,18 +812,20 @@ class VirtualCamService:
 
     async def _start_idle_locked(self, sink: Path) -> bool:
         request = self._armed_request or VirtualCamStartRequest()
-        # Fixed paths: standby spawns on every idle transition, so unique
-        # tempfiles would leak a 4MB frame + log per cycle on restarts.
-        frame_path = Path(tempfile.gettempdir()) / "pixypilot-standby-frame.yuyv"
-        log_path = Path(tempfile.gettempdir()) / "pixypilot-standby.log"
         try:
-            # One dark frame: Y=0x10 (limited-range black), U=V=0x80 (neutral).
-            frame_path.write_bytes(
-                b"\x10\x80\x10\x80" * (request.output_width * request.output_height // 2)
+            # Fixed names: standby spawns on every idle transition, so unique
+            # tempfiles would leak a frame + log per cycle on restarts. They
+            # live in a private runtime dir, not the shared /tmp.
+            scratch = runtime_dir()
+            frame_path = scratch / "standby-frame.yuyv"
+            log_path = scratch / "standby.log"
+            # Up to 32MB at the size cap: build it off the event loop.
+            await asyncio.to_thread(
+                _write_standby_frame, frame_path, request.output_width, request.output_height
             )
             stderr_log = log_path.open("wb")
         except OSError as exc:
-            self._last_error = _spawn_error_reason(exc)
+            self._last_error = f"standby frame could not be written: {exc}"
             return False
         command = build_standby_command(
             request.output_width,

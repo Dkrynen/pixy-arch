@@ -1,3 +1,5 @@
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -65,32 +67,54 @@ class SettingsService:
         )
 
     async def update_settings(self, update: AppSettingsUpdate) -> AppSettings:
-        path = config.config_file_path(self.settings_path)
         patch = update.model_dump(exclude_unset=True, exclude_none=False)
         if not patch:
             return await self.get_settings()
-
-        current = self._read_raw_config(path)
-        merged = _deep_update(current, patch)
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.safe_dump(merged, sort_keys=False), encoding="utf-8")
-        config.reset_config_cache_for_tests()
+        self.write_patch(patch)
         return await self.get_settings()
+
+    def write_patch(self, patch: dict[str, Any]) -> None:
+        """Deep-merge `patch` into the config file, creating it if needed.
+
+        Callers validate values first; this only persists them.
+        """
+        path = config.config_file_path(self.settings_path)
+        merged = _deep_update(self._read_raw_config(path), patch)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_text_atomic(path, yaml.safe_dump(merged, sort_keys=False))
+        config.reset_config_cache_for_tests()
 
     def _read_raw_config(self, path: Path) -> dict[str, Any]:
         if not path.exists():
             return {}
-        raw_config = yaml.safe_load(path.read_text(encoding="utf-8"))
+        try:
+            raw_config = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise ValueError(f"{path} is not valid YAML: {exc}") from exc
         if raw_config is None:
             return {}
         if not isinstance(raw_config, dict):
-            raise ValueError("PixyPilot config must be a YAML mapping")
+            raise ValueError(f"{path} must be a YAML mapping")
         return _string_keys(raw_config)
 
 
 def get_settings_service() -> SettingsService:
     return SettingsService()
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
+    # A crash mid-write must not leave a truncated config that stops the
+    # backend from starting.
+    fd, temp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        if path.exists():
+            os.chmod(temp_name, path.stat().st_mode & 0o777)
+        os.replace(temp_name, path)
+    except BaseException:
+        Path(temp_name).unlink(missing_ok=True)
+        raise
 
 
 def _deep_update(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:

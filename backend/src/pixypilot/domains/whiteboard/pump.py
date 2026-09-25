@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 
 import cv2
 import numpy as np
@@ -88,11 +89,22 @@ class WhiteboardPump:
 
     async def _run(self) -> None:
         loop = asyncio.get_running_loop()
-        capture = await loop.run_in_executor(None, self._open_capture)
+        opening = asyncio.ensure_future(asyncio.to_thread(self._open_capture))
+        try:
+            capture = await asyncio.shield(opening)
+        except asyncio.CancelledError:
+            # Stopped mid-open: release the capture once the open lands.
+            opening.add_done_callback(_release_opened_capture)
+            raise
         frame_index = 0
+        reading: asyncio.Future | None = None
         try:
             while True:
-                ok, frame = await loop.run_in_executor(None, capture.read)
+                # Shielded task, not a bare executor future: cancelling the
+                # pump must not lose track of a read still running in its
+                # thread (see the finally below).
+                reading = asyncio.ensure_future(asyncio.to_thread(capture.read))
+                ok, frame = await asyncio.shield(reading)
                 if not ok or frame is None:
                     await asyncio.sleep(0.05)
                     continue
@@ -115,6 +127,11 @@ class WhiteboardPump:
                     except (BrokenPipeError, ConnectionResetError):
                         return
         finally:
+            if reading is not None and not reading.done():
+                # OpenCV can crash when release() runs while read() is still
+                # in flight on another thread: let the read finish first.
+                with contextlib.suppress(Exception):
+                    await reading
             capture.release()
 
     def _open_capture(self) -> cv2.VideoCapture:
@@ -127,3 +144,9 @@ class WhiteboardPump:
         capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         capture.set(cv2.CAP_PROP_FPS, self.fps)
         return capture
+
+
+def _release_opened_capture(opening: "asyncio.Future[cv2.VideoCapture]") -> None:
+    if opening.cancelled() or opening.exception() is not None:
+        return
+    opening.result().release()

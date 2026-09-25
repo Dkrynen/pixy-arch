@@ -1,8 +1,11 @@
 import asyncio
+import contextlib
 import json
+import logging
 import os
 import select
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -106,7 +109,15 @@ KNOWN_CONTROLS = [
     "go_to_default_position",
     "motor_speed",
 ]
+_LOG = logging.getLogger("pixypilot.hid")
 DEFAULT_REPORT_GAP_SECONDS = 0.025
+# A non-zero PTZ vector keeps the gimbal moving until a zero vector arrives.
+# The UI re-sends the vector every 500 ms while the pad is held; if those stop
+# (tab closed, network drop, crash) the backend stops the motors itself.
+PTZ_WATCHDOG_TIMEOUT_S = 1.5
+# The trace is a rolling debug log: rotate at this size, keeping one backup.
+HID_TRACE_MAX_BYTES = 5 * 1024 * 1024
+HID_TRACE_FILENAME = "pixypilot-hid-trace.jsonl"
 DEFAULT_QUERY_TIMEOUT_SECONDS = 0.5
 TARGET_TRACKING_REPORT_GAP_SECONDS = 0.05
 _HIDRAW_PATH_CACHE: str | None = None
@@ -200,6 +211,67 @@ class _HidChannel:
 
 
 _CHANNEL = _HidChannel()
+
+
+class _PtzWatchdog:
+    """Dead-man timer for continuous PTZ vector moves.
+
+    Module-level because the service is created per request; the timer must
+    outlive the request that armed it.
+    """
+
+    def __init__(self) -> None:
+        self._task: asyncio.Task[None] | None = None
+        self._stop: Callable[[], Awaitable[None]] | None = None
+
+    @property
+    def pending(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    def arm(self, stop: Callable[[], Awaitable[None]]) -> None:
+        self.cancel()
+        self._stop = stop
+        self._task = asyncio.get_running_loop().create_task(self._expire(stop))
+
+    def cancel(self) -> None:
+        task = self._task
+        self._task = None
+        self._stop = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _expire(self, stop: Callable[[], Awaitable[None]]) -> None:
+        await asyncio.sleep(PTZ_WATCHDOG_TIMEOUT_S)
+        # Detach first: a move arriving while the stop is written re-arms a
+        # fresh timer instead of cancelling this one mid-write.
+        self._task = None
+        self._stop = None
+        _LOG.warning("PTZ vector not refreshed for %.1fs; stopping the gimbal", PTZ_WATCHDOG_TIMEOUT_S)
+        await _run_stop(stop)
+
+    async def shutdown(self) -> None:
+        """Cancel the timer; a move still pending is stopped now, not left running."""
+        task, stop = self._task, self._stop
+        self.cancel()
+        if task is None or stop is None:
+            return
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        await _run_stop(stop)
+
+
+async def _run_stop(stop: Callable[[], Awaitable[None]]) -> None:
+    try:
+        await stop()
+    except Exception:
+        _LOG.warning("PTZ watchdog stop failed", exc_info=True)
+
+
+_PTZ_WATCHDOG = _PtzWatchdog()
+
+
+async def shutdown_ptz_watchdog() -> None:
+    await _PTZ_WATCHDOG.shutdown()
 
 
 @dataclass(frozen=True)
@@ -431,7 +503,7 @@ class PixyHidService:
 
         output_dir = project_root() / "diagnostics" / "hid"
         output_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"pixypilot-hid-{captured_at.replace(':', '').replace('+0000', 'Z')}.json"
+        filename = f"pixy-arch-hid-{captured_at.replace(':', '').replace('+0000', 'Z')}.json"
         output_path = output_dir / filename
         payload = snapshot.model_dump(mode="json")
         payload["file_path"] = str(output_path)
@@ -501,6 +573,18 @@ class PixyHidService:
 
     async def send_ptz_vector(self, x: float, y: float, z: float = 0.0) -> PixyHidCommandResult:
         path = await self._require_writable_path()
+        if x == 0 and y == 0 and z == 0:
+            _PTZ_WATCHDOG.cancel()
+        else:
+
+            async def stop() -> None:
+                await self._write_reports(
+                    path, ptz_vector_reports(0.0, 0.0, 0.0), operation="ptz_vector:watchdog-stop"
+                )
+
+            # Armed (re-armed on every heartbeat) before the write, so even a
+            # move whose write errors part-way is stopped if nothing follows.
+            _PTZ_WATCHDOG.arm(stop)
         await self._write_reports(path, ptz_vector_reports(x, y, z), operation=f"ptz_vector:{x}:{y}:{z}")
         return PixyHidCommandResult(ok=True, command="ptz_vector", value=f"{x},{y},{z}", path=path)
 
@@ -779,13 +863,17 @@ def _hex_to_bytes(value: str | None) -> bytes | None:
 
 def _append_hid_trace_event(event: dict) -> None:
     output_dir = project_root() / "diagnostics" / "hid"
+    trace_path = output_dir / HID_TRACE_FILENAME
     payload = {
         "captured_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
         **event,
     }
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
-        with (output_dir / "pixypilot-hid-trace.jsonl").open("a", encoding="utf-8") as trace_file:
+        with contextlib.suppress(FileNotFoundError):
+            if trace_path.stat().st_size >= HID_TRACE_MAX_BYTES:
+                os.replace(trace_path, trace_path.with_name(trace_path.name + ".1"))
+        with trace_path.open("a", encoding="utf-8") as trace_file:
             trace_file.write(json.dumps(payload, sort_keys=True) + "\n")
     except OSError:
         # Tracing must never break camera control.

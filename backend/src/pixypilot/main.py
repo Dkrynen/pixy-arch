@@ -1,7 +1,9 @@
 import asyncio
 import logging
+from collections.abc import Awaitable, Coroutine
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,13 +22,39 @@ from pixypilot.config import (
 from pixypilot.core.commands import CommandError
 from pixypilot.domains.audio.service import get_audio_service
 from pixypilot.domains.automation.service import get_automation_service
-from pixypilot.domains.pixy_hid.service import get_pixy_hid_service
+from pixypilot.domains.pixy_hid.service import get_pixy_hid_service, shutdown_ptz_watchdog
 from pixypilot.domains.video.service import get_video_service
 from pixypilot.domains.virtualcam.models import VirtualCamStartRequest
 from pixypilot.domains.virtualcam.service import get_virtualcam_service
 from pixypilot.security import LocalRequestGuard
 
 _LOG = logging.getLogger("pixypilot.startup")
+
+# The event loop only keeps weak references to tasks: hold startup tasks here
+# so they cannot be garbage-collected mid-run, and cancel them on shutdown.
+_BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _spawn_background(coro: Coroutine[Any, Any, None]) -> None:
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+
+
+async def _cancel_background_tasks() -> None:
+    tasks = list(_BACKGROUND_TASKS)
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def _shutdown_step(name: str, step: Awaitable[object]) -> None:
+    # One failing teardown step must not skip the ones after it (a leaked
+    # ffmpeg or pw-loopback would outlive the process).
+    try:
+        await step
+    except Exception:
+        _LOG.exception("shutdown: %s failed", name)
 
 
 async def _apply_start_in_privacy() -> None:
@@ -89,21 +117,26 @@ async def lifespan(app: FastAPI):
     if automation.settings.enabled:
         await automation.start()
     if start_in_privacy():
-        asyncio.create_task(_apply_start_in_privacy())
+        _spawn_background(_apply_start_in_privacy())
     if virtualcam_autostart():
-        asyncio.create_task(_autostart_virtualcam())
+        _spawn_background(_autostart_virtualcam())
     yield
-    await automation.stop()
+    await _cancel_background_tasks()
+    await _shutdown_step("automation", automation.stop())
+    await _shutdown_step("ptz watchdog", shutdown_ptz_watchdog())
     # Stop recordings/streams before the vcam: a device-fed recorder ffmpeg
     # would otherwise outlive the process holding the camera node, blocking
     # the next boot's autostart.
     video = get_video_service()
-    await video.stop_recording()
-    await video.stop_streams()
-    await get_virtualcam_service().stop()
+    await _shutdown_step("recording", video.stop_recording())
+    await _shutdown_step("streams", video.stop_streams())
+    await _shutdown_step("virtual camera", get_virtualcam_service().stop())
+    audio = get_audio_service()
+    await _shutdown_step("audio monitor", audio.stop_monitor())
+    await _shutdown_step("audio meter", audio.stop_meter())
 
 
-app = FastAPI(title="PixyPilot API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Pixy Arch API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

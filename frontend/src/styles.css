@@ -2260,7 +2260,8 @@ details.smart-control:not([open]) > summary.smart-label:hover {
 }
 
 .privacy-safety-strip.state-loading,
-.privacy-safety-strip.state-waiting-for-hid,
+.privacy-safety-strip.state-sending,
+.privacy-safety-strip.state-unknown,
 .privacy-safety-strip.state-failed {
   border-color: var(--warn-border);
   color: var(--warn);
@@ -2795,6 +2796,27 @@ select.runtime-input {
   border-color: var(--ok-border);
   color: var(--ok);
   background: var(--ok-soft);
+}
+
+.runtime-lock {
+  display: inline-flex;
+  justify-content: center;
+  width: 30px;
+}
+
+.runtime-lock svg {
+  color: var(--text-3);
+}
+
+.runtime-row-hint {
+  grid-column: 2 / -1;
+  margin-top: -4px;
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.bind-host-warning code {
+  font-family: var(--font-mono);
 }
 
 /* ============================================================

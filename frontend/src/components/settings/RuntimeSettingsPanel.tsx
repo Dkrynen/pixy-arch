@@ -3,7 +3,13 @@ import { Fragment, useEffect, useState } from "react";
 
 import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
 import { EditableRuntimeRow, ReadOnlyRuntimeRow } from "./RuntimeSettingRow";
-import { groupRuntimeSettings, runtimeSettings, type RuntimeSetting } from "./runtimeSettings";
+import {
+  groupRuntimeSettings,
+  isLoopbackHost,
+  isValidBindHost,
+  runtimeSettings,
+  type RuntimeSetting
+} from "./runtimeSettings";
 
 type Props = {
   privacySafety: UsePrivacySafetyResult;
@@ -27,6 +33,11 @@ export function RuntimeSettingsPanel({ privacySafety }: Props) {
     return () => window.clearTimeout(timer);
   }, [message]);
 
+  // Warn about the saved bind host, or about a complete draft while editing it.
+  const hostUnderReview =
+    editingId === "server-host" && isValidBindHost(draft) ? draft.trim() : settings?.server.host ?? null;
+  const exposedHost = hostUnderReview !== null && !isLoopbackHost(hostUnderReview) ? hostUnderReview : null;
+
   const startEdit = (row: RuntimeSetting) => {
     setEditingId(row.id);
     setDraft(row.value);
@@ -34,6 +45,9 @@ export function RuntimeSettingsPanel({ privacySafety }: Props) {
   };
 
   const saveRow = async (row: RuntimeSetting) => {
+    if (!row.apply) {
+      return;
+    }
     try {
       await privacySafety.saveSettings(row.apply(draft));
       setEditingId(null);
@@ -55,6 +69,13 @@ export function RuntimeSettingsPanel({ privacySafety }: Props) {
         <strong>{settings?.server.url ?? "http://127.0.0.1:8000"}</strong>
         <span>{settings?.frontend.single_port ? "Single address" : "Developer mode"}</span>
       </div>
+      {exposedHost && (
+        <div className="mini-warning bind-host-warning" role="alert">
+          Bind host <code>{exposedHost}</code> is not a loopback address. The API has no authentication:
+          anyone who can reach this port on your network could view the camera, record, move it, and
+          unmute the mic. Use 127.0.0.1 unless you trust every device on the network.
+        </div>
+      )}
       {privacySafety.settingsError && <div className="mini-error">{privacySafety.settingsError}</div>}
       {message && <div className="mini-success">{message}</div>}
       <div className="runtime-list">

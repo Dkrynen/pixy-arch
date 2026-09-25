@@ -183,20 +183,26 @@ function formatTime(at: number): string {
 }
 
 function privacyStatusText(privacySafety: UsePrivacySafetyResult) {
-  if (!privacySafety.startupPrivacyEnabled) {
-    return "startup privacy disabled";
+  switch (privacySafety.privacyCommandState) {
+    case "sending":
+      return "privacy sending";
+    case "applied":
+      return "privacy on, mic muted";
+    case "mic-failed":
+      return "privacy on, mic mute failed";
+    case "failed":
+      return "privacy failed";
+    default:
+      break;
   }
-  if (privacySafety.startupPrivacyState === "waiting-for-hid") {
-    return "waiting for HID";
+  switch (privacySafety.startupPrivacyState) {
+    case "enabled":
+      return "startup privacy on";
+    case "disabled":
+      return "startup privacy off";
+    case "unknown":
+      return "safety settings unavailable";
+    default:
+      return "loading safety";
   }
-  if (privacySafety.startupPrivacyState === "sending") {
-    return "startup privacy sending";
-  }
-  if (privacySafety.startupPrivacyState === "sent") {
-    return "startup privacy sent";
-  }
-  if (privacySafety.startupPrivacyState === "failed") {
-    return "startup privacy failed";
-  }
-  return "loading safety";
 }

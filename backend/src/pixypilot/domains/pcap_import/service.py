@@ -27,6 +27,17 @@ CAPTURE_MAGIC_BYTES = {
 # libpcap global header is 24 bytes; a pcapng section header block is at
 # least 28 bytes. Anything shorter is not a usable capture.
 MIN_CAPTURE_SIZE_BYTES = {".pcap": 24, ".pcapng": 28}
+# Captures of the handful of HID/UVC exchanges worth decoding are a few MB;
+# the cap keeps an upload from filling the disk.
+MAX_CAPTURE_SIZE_BYTES = 512 * 1024 * 1024
+
+
+class CaptureTooLargeError(ValueError):
+    pass
+
+
+def capture_too_large_message() -> str:
+    return f"Capture exceeds the {MAX_CAPTURE_SIZE_BYTES // (1024 * 1024)} MB upload limit"
 
 
 class PcapImportService:
@@ -65,6 +76,8 @@ class PcapImportService:
                     if not chunk:
                         continue
                     size_bytes += len(chunk)
+                    if size_bytes > MAX_CAPTURE_SIZE_BYTES:
+                        raise CaptureTooLargeError(capture_too_large_message())
                     digest.update(chunk)
                     handle.write(chunk)
                     if not magic_checked:

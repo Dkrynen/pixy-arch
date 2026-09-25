@@ -52,11 +52,14 @@ class ControlPresetService:
         if not self.presets_path.exists():
             return ControlPresetStore()
 
-        raw_store = yaml.safe_load(self.presets_path.read_text(encoding="utf-8"))
+        try:
+            raw_store = yaml.safe_load(self.presets_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise ValueError(f"{self.presets_path} is not valid YAML: {exc}") from exc
         if raw_store is None:
             return ControlPresetStore()
         if not isinstance(raw_store, dict):
-            raise ValueError("PixyPilot presets must be a YAML mapping")
+            raise ValueError(f"{self.presets_path} must be a YAML mapping")
 
         return ControlPresetStore.model_validate(_string_keys(raw_store))
 

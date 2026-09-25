@@ -169,6 +169,20 @@ function renderPanel(
   return setValue;
 }
 
+function padRect(): DOMRect {
+  return {
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    top: 0,
+    left: 0,
+    right: 100,
+    bottom: 100,
+    toJSON: () => ({})
+  };
+}
+
 describe("PtzControlPanel", () => {
   it("moves pan by the exposed V4L2 step", async () => {
     const user = userEvent.setup();
@@ -245,6 +259,27 @@ describe("PtzControlPanel", () => {
     await user.click(screen.getByRole("button", { name: "Save PTZ preset" }));
 
     expect(savePtzPreset).toHaveBeenCalledWith(2);
+  });
+
+  it("does not mark a preset slot as saved when the device rejects the save", async () => {
+    const user = userEvent.setup();
+    const savePtzPreset = vi.fn().mockResolvedValue(false);
+    renderPanel(vi.fn().mockResolvedValue(undefined), writablePixyHid(["ptz_preset_save"], { savePtzPreset }), hidQuery({}));
+
+    await user.click(screen.getByRole("button", { name: "Save PTZ preset" }));
+
+    expect(savePtzPreset).toHaveBeenCalledWith(1);
+    expect(screen.getByRole("button", { name: "Preset 1" })).not.toHaveClass("is-filled");
+  });
+
+  it("marks a preset slot as saved once the device accepts the save", async () => {
+    const user = userEvent.setup();
+    const savePtzPreset = vi.fn().mockResolvedValue(true);
+    renderPanel(vi.fn().mockResolvedValue(undefined), writablePixyHid(["ptz_preset_save"], { savePtzPreset }), hidQuery({}));
+
+    await user.click(screen.getByRole("button", { name: "Save PTZ preset" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Preset 1" })).toHaveClass("is-filled"));
   });
 
   it("uses the captured HID load command when native preset loading is available", async () => {
@@ -444,6 +479,97 @@ describe("PtzControlPanel", () => {
     await waitFor(() => expect(sendPtzVector).toHaveBeenCalledWith({ x: 0, y: 0, z: 0 }));
     expect(setValue).not.toHaveBeenCalled();
     expect(centerButton.querySelector(".ptz-vector-puck")).toBeNull();
+  });
+
+  it("keeps re-sending the held pad vector as a heartbeat for the backend dead-man", async () => {
+    const sendPtzVector = vi.fn().mockResolvedValue(true);
+    renderPanel(vi.fn().mockResolvedValue(undefined), writablePixyHid(["ptz_vector"], { sendPtzVector }), hidQuery({}));
+    const centerButton = screen.getByRole("button", { name: "Center PTZ" });
+    vi.spyOn(centerButton, "getBoundingClientRect").mockReturnValue(padRect());
+
+    // Pointer held still off-center: no pointermove events arrive.
+    fireEvent.pointerDown(centerButton, { clientX: 100, clientY: 50 });
+
+    await waitFor(() => expect(sendPtzVector).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(sendPtzVector).toHaveBeenCalledTimes(3), { timeout: 2000 });
+    expect(sendPtzVector.mock.calls.every(([vector]) => vector.x === 12 && vector.y === 0)).toBe(true);
+
+    fireEvent.pointerUp(centerButton, { clientX: 100, clientY: 50 });
+    await waitFor(() => expect(sendPtzVector).toHaveBeenLastCalledWith({ x: 0, y: 0, z: 0 }));
+  });
+
+  it("retries the pad stop when the device rejects it", async () => {
+    let stopAttempts = 0;
+    const sendPtzVector = vi.fn(async (vector: { x: number; y: number }) => {
+      if (vector.x === 0 && vector.y === 0) {
+        stopAttempts += 1;
+        return stopAttempts > 1;
+      }
+      return true;
+    });
+    renderPanel(vi.fn().mockResolvedValue(undefined), writablePixyHid(["ptz_vector"], { sendPtzVector }), hidQuery({}));
+    const centerButton = screen.getByRole("button", { name: "Center PTZ" });
+    vi.spyOn(centerButton, "getBoundingClientRect").mockReturnValue(padRect());
+
+    fireEvent.pointerDown(centerButton, { clientX: 100, clientY: 50 });
+    await waitFor(() => expect(sendPtzVector).toHaveBeenCalledTimes(1));
+    fireEvent.pointerUp(centerButton, { clientX: 100, clientY: 50 });
+
+    await waitFor(() => expect(stopAttempts).toBe(2));
+  });
+
+  it("sends a keepalive stop when the window loses focus mid-drag", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
+    try {
+      const sendPtzVector = vi.fn().mockResolvedValue(true);
+      renderPanel(vi.fn().mockResolvedValue(undefined), writablePixyHid(["ptz_vector"], { sendPtzVector }), hidQuery({}));
+      const centerButton = screen.getByRole("button", { name: "Center PTZ" });
+      vi.spyOn(centerButton, "getBoundingClientRect").mockReturnValue(padRect());
+
+      fireEvent.pointerDown(centerButton, { clientX: 100, clientY: 50 });
+      await waitFor(() => expect(sendPtzVector).toHaveBeenCalledTimes(1));
+      fireEvent.blur(window);
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/pixy-hid/ptz-vector",
+        expect.objectContaining({ method: "PATCH", keepalive: true, body: JSON.stringify({ x: 0, y: 0, z: 0 }) })
+      );
+      expect(centerButton.querySelector(".ptz-vector-puck")).toBeNull();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("stops keyboard vector nudges when the arrow key is released", async () => {
+    const sendPtzVector = vi.fn().mockResolvedValue(true);
+    renderPanel(vi.fn().mockResolvedValue(undefined), writablePixyHid(["ptz_vector"], { sendPtzVector }), hidQuery({}));
+    const pad = screen.getByRole("group", { name: "Pan and tilt controls" });
+
+    fireEvent.keyDown(pad, { key: "ArrowRight" });
+    await waitFor(() => expect(sendPtzVector).toHaveBeenCalledWith({ x: 6, y: 0 }));
+    fireEvent.keyUp(pad, { key: "ArrowRight" });
+
+    await waitFor(() => expect(sendPtzVector).toHaveBeenLastCalledWith({ x: 0, y: 0, z: 0 }));
+  });
+
+  it("recenters from the keyboard with Enter or Space on the center button", async () => {
+    const setValue = renderPanel();
+    const centerButton = screen.getByRole("button", { name: "Center PTZ" });
+
+    fireEvent.keyDown(centerButton, { key: "Enter" });
+    await waitFor(() => expect(setValue).toHaveBeenCalledWith("pan_absolute", 0));
+
+    setValue.mockClear();
+    fireEvent.keyDown(centerButton, { key: " " });
+    await waitFor(() => expect(setValue).toHaveBeenCalledWith("tilt_absolute", 0));
+  });
+
+  it("names the pad group, describes its keyboard support, and labels the zoom slider", () => {
+    renderPanel();
+
+    const pad = screen.getByRole("group", { name: "Pan and tilt controls" });
+    expect(pad).toHaveAccessibleDescription(/Arrow keys nudge pan and tilt; Home recenters/);
+    expect(screen.getByRole("slider", { name: "Zoom" })).toBeInTheDocument();
   });
 
   it("shows the live gimbal position decoded from motor queries", async () => {

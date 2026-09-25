@@ -40,6 +40,40 @@ import type {
 
 const API_BASE = "";
 
+/**
+ * Turns a FastAPI error `detail` into a readable message. Plain HTTP errors
+ * carry a string; request validation (422) carries a list of `{loc, msg}`
+ * entries, rendered as `server.host: <msg>` joined by "; ".
+ */
+export function errorDetailMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+  const items = Array.isArray(detail) ? detail : detail && typeof detail === "object" ? [detail] : [];
+  const parts = items
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return typeof item === "string" ? item : "";
+      }
+      const { loc, msg } = item as { loc?: unknown; msg?: unknown };
+      if (typeof msg !== "string" || !msg) {
+        return "";
+      }
+      const path = Array.isArray(loc)
+        ? loc.filter((part) => part !== "body" && (typeof part === "string" || typeof part === "number")).join(".")
+        : "";
+      return path ? `${path}: ${msg}` : msg;
+    })
+    .filter((part) => part.length > 0);
+  return parts.length > 0 ? parts.join("; ") : fallback;
+}
+
+async function errorFromResponse(response: Response): Promise<Error> {
+  const body: unknown = await response.json().catch(() => null);
+  const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : undefined;
+  return new Error(errorDetailMessage(detail, response.statusText || `HTTP ${response.status}`));
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -50,11 +84,27 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(typeof body.detail === "string" ? body.detail : response.statusText);
+    throw await errorFromResponse(response);
   }
 
   return response.json() as Promise<T>;
+}
+
+/**
+ * Fire-and-forget request that survives page unload (`keepalive`). Used for
+ * safety stops on pagehide/blur where nothing can await the response.
+ */
+function sendKeepalive(path: string, method: string, body?: unknown): void {
+  try {
+    void fetch(`${API_BASE}${path}`, {
+      method,
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    }).catch(() => undefined);
+  } catch {
+    // The page is going away; the backend dead-man timers are the backstop.
+  }
 }
 
 export async function fetchDevices(): Promise<Device[]> {
@@ -162,8 +212,7 @@ export async function uploadPcapImport(
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(typeof body.detail === "string" ? body.detail : response.statusText);
+    throw await errorFromResponse(response);
   }
 
   return response.json() as Promise<PcapImportRecord>;
@@ -334,6 +383,11 @@ export async function sendPixyPtzVector(vector: PtzVector): Promise<PixyHidComma
   });
 }
 
+/** Zero-vector stop sent with `keepalive` so it still lands during pagehide. */
+export function stopPixyPtzKeepalive(): void {
+  sendKeepalive("/api/pixy-hid/ptz-vector", "PATCH", { x: 0, y: 0, z: 0 });
+}
+
 export async function savePixyPtzPreset(slot: PtzPresetSlot): Promise<PixyHidCommandResult> {
   return requestJson<PixyHidCommandResult>("/api/pixy-hid/ptz-preset/save", {
     method: "PATCH",
@@ -458,10 +512,12 @@ export async function fetchAutomationStatus(): Promise<AutomationStatus> {
   return requestJson<AutomationStatus>("/api/automation/status");
 }
 
-export async function updateAutomationSettings(settings: AutomationSettings): Promise<AutomationStatus> {
+// Sends only the fields being changed; the backend merges them into the
+// current settings so a stale copy here can never overwrite newer values.
+export async function updateAutomationSettings(update: Partial<AutomationSettings>): Promise<AutomationStatus> {
   return requestJson<AutomationStatus>("/api/automation/settings", {
     method: "PATCH",
-    body: JSON.stringify(settings)
+    body: JSON.stringify(update)
   });
 }
 
@@ -481,6 +537,11 @@ export async function startAudioMeter(): Promise<AudioMonitorResult> {
 
 export async function stopAudioMeter(): Promise<AudioMonitorResult> {
   return requestJson<AudioMonitorResult>("/api/audio/meter/stop", { method: "POST" });
+}
+
+/** Meter stop sent with `keepalive` so it still lands during pagehide. */
+export function stopAudioMeterKeepalive(): void {
+  sendKeepalive("/api/audio/meter/stop", "POST");
 }
 
 // Delete an imported capture (backend: DELETE /api/pcap-imports/{id}).

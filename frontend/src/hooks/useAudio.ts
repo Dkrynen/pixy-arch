@@ -10,6 +10,7 @@ import {
   startAudioMeter,
   startAudioMonitor,
   stopAudioMeter,
+  stopAudioMeterKeepalive,
   stopAudioMonitor
 } from "../lib/apiClient";
 import type { AudioStatus } from "../types/api";
@@ -22,15 +23,16 @@ export type UseAudioResult = {
   pending: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  setMuted: (muted: boolean) => Promise<void>;
-  setVolume: (volume: number) => Promise<void>;
-  setDefaultSource: () => Promise<void>;
+  // Commands resolve true on success and false on failure (reason in `error`).
+  setMuted: (muted: boolean) => Promise<boolean>;
+  setVolume: (volume: number) => Promise<boolean>;
+  setDefaultSource: () => Promise<boolean>;
   // Optional so pre-existing UseAudioResult test doubles stay valid.
-  restoreDefaultSource?: () => Promise<void>;
-  setMonitorRunning: (running: boolean) => Promise<void>;
+  restoreDefaultSource?: () => Promise<boolean>;
+  setMonitorRunning: (running: boolean) => Promise<boolean>;
   // Optional so pre-existing UseAudioResult test doubles in other panels stay
   // valid; the hook always provides it.
-  setMeterRunning?: (running: boolean) => Promise<void>;
+  setMeterRunning?: (running: boolean) => Promise<boolean>;
 };
 
 export function useAudio(): UseAudioResult {
@@ -74,15 +76,28 @@ export function useAudio(): UseAudioResult {
     return () => window.clearInterval(timer);
   }, [meterRunning]);
 
+  // Closing or navigating away stops the meter instead of leaving the mic
+  // being read (the backend also stops it after 10 s without a poll).
+  useEffect(() => {
+    if (!meterRunning) {
+      return;
+    }
+    const handlePageHide = () => stopAudioMeterKeepalive();
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
+  }, [meterRunning]);
+
   const run = useCallback(
-    async (action: () => Promise<unknown>, rollback?: () => void) => {
+    async (action: () => Promise<unknown>, rollback?: () => void): Promise<boolean> => {
       setPending(true);
       setError(null);
       try {
         await action();
+        return true;
       } catch (err) {
         rollback?.();
         setError(err instanceof Error ? err.message : "Unable to run PIXY audio command");
+        return false;
       } finally {
         setPending(false);
       }
@@ -94,7 +109,7 @@ export function useAudio(): UseAudioResult {
     async (muted: boolean) => {
       const previousStatus = status;
       setStatus((current) => (current ? { ...current, muted } : current));
-      await run(() => setAudioMute(muted), () => setStatus(previousStatus));
+      return run(() => setAudioMute(muted), () => setStatus(previousStatus));
     },
     [status, run]
   );
@@ -103,20 +118,20 @@ export function useAudio(): UseAudioResult {
     async (volume: number) => {
       const previousStatus = status;
       setStatus((current) => (current ? { ...current, volume } : current));
-      await run(() => setAudioVolume(volume), () => setStatus(previousStatus));
+      return run(() => setAudioVolume(volume), () => setStatus(previousStatus));
     },
     [status, run]
   );
 
   const setDefaultSource = useCallback(async () => {
-    await run(async () => {
+    return run(async () => {
       await setAudioDefaultSource();
       await refresh();
     });
   }, [run, refresh]);
 
   const restoreDefaultSource = useCallback(async () => {
-    await run(async () => {
+    return run(async () => {
       await restoreAudioDefaultSource();
       await refresh();
     });
@@ -126,7 +141,7 @@ export function useAudio(): UseAudioResult {
     async (running: boolean) => {
       const previousStatus = status;
       setStatus((current) => (current ? { ...current, monitor_running: running } : current));
-      await run(
+      return run(
         async () => {
           if (running) {
             await startAudioMonitor();
@@ -146,7 +161,7 @@ export function useAudio(): UseAudioResult {
       setStatus((current) =>
         current ? { ...current, meter_running: running, level: running ? current.level ?? null : null } : current
       );
-      await run(
+      return run(
         async () => {
           if (running) {
             await startAudioMeter();

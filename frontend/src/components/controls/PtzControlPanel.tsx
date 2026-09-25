@@ -24,6 +24,7 @@ import {
 import { isCenteredVector, ptzVectorFromPadPoint, vectorPadPosition } from "../../domains/ptz/vectorPad";
 import type { UseControlsResult } from "../../hooks/useControls";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
+import { usePtzVectorDrive } from "../../hooks/usePtzVectorDrive";
 import { fetchPixyHidQuery } from "../../lib/apiClient";
 import type {
   PixyHidQueryName,
@@ -82,7 +83,6 @@ const PTZ_JOG_REPEAT_MS_BY_SPEED: Record<number, number> = {
   4: 160,
   5: 110
 };
-const PTZ_VECTOR_DRAG_THROTTLE_MS = 120;
 const PTZ_TELEMETRY_INTERVAL_MS = 1500;
 const PTZ_TELEMETRY_SETTLE_MS = 650;
 
@@ -128,6 +128,8 @@ function ptzVectorForDirection(direction: PtzDirection, speed: number): PtzVecto
   }
   return { x: 0, y: -magnitude };
 }
+
+const PAD_KEYBOARD_HINT = "Arrow keys nudge pan and tilt; Home recenters.";
 
 const JOG_KEYS: Record<string, { direction: PtzDirection; axis: "pan" | "tilt"; sign: number }> = {
   ArrowLeft: { direction: "left", axis: "pan", sign: -1 },
@@ -185,6 +187,7 @@ function AxisControl({ label, control, disabled, onSetValue }: AxisControlProps)
       <input
         className="range-input ptz-axis-range"
         type="range"
+        aria-label={label}
         min={min}
         max={max}
         step={step}
@@ -280,10 +283,6 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
   const jogActiveRef = useRef(false);
   const jogTimerRef = useRef<number | null>(null);
   const telemetryTimerRef = useRef<number | null>(null);
-  const vectorDragInFlightRef = useRef(false);
-  const vectorDragLastSentAtRef = useRef(0);
-  const vectorMotionActiveRef = useRef(false);
-  const hidPtzVectorReadyRef = useRef(false);
   const hidWritable = pixyHid.status?.writable === true;
   const knownControls = pixyHid.status?.known_controls ?? [];
   const hidPtzReady = hidWritable && knownControls.includes("ptz_direction");
@@ -296,9 +295,6 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
   const hidPresetClearReady = hidWritable && knownControls.includes("ptz_preset_clear");
   const hidMotorSpeedReady = hidWritable && knownControls.includes("motor_speed");
   const hidPresetPending = pixyHid.pendingCommand?.startsWith("ptz-preset-") ?? false;
-  // Track vector readiness in a ref so the unmount cleanup (a mount-time
-  // closure) still sends the zero-vector stop after the HID comes online late.
-  hidPtzVectorReadyRef.current = hidPtzVectorReady;
 
   const pollTelemetry = useCallback(async () => {
     const [panResult, tiltResult] = await Promise.all([
@@ -321,6 +317,16 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
       void pollTelemetry().catch(() => undefined);
     }, PTZ_TELEMETRY_SETTLE_MS);
   }, [pollTelemetry]);
+
+  // Continuous vector motion: serialized sends, a heartbeat for the backend
+  // dead-man while held, ordered + retried stops, keepalive stop on page exit.
+  const vectorDrive = usePtzVectorDrive(pixyHid.sendPtzVector, {
+    onStopped: scheduleTelemetryPoll,
+    onHalt: () => {
+      cancelJogTimers();
+      setActiveVector(null);
+    }
+  });
 
   // Live gimbal position: polled while the HID channel is writable.
   useEffect(() => {
@@ -443,9 +449,8 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
     }
     if (hidPtzVectorReady) {
       const vector = ptzVectorForDirection(hidDirection, speed);
-      vectorMotionActiveRef.current = true;
       setActiveVector(vector);
-      await pixyHid.sendPtzVector(vector);
+      await vectorDrive.move(vector);
       return;
     }
     if (!control || control.flags.includes("inactive")) {
@@ -455,38 +460,32 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
   };
 
   const stopPtzVector = async () => {
-    if (!vectorMotionActiveRef.current || !hidPtzVectorReadyRef.current) {
-      setActiveVector(null);
-      return;
-    }
-    vectorMotionActiveRef.current = false;
     setActiveVector(null);
-    await pixyHid.sendPtzVector({ x: 0, y: 0, z: 0 });
-    scheduleTelemetryPoll();
+    await vectorDrive.stop();
   };
 
-  const cancelJogTimers = () => {
+  function cancelJogTimers() {
     jogActiveRef.current = false;
     if (jogTimerRef.current !== null) {
       window.clearTimeout(jogTimerRef.current);
       jogTimerRef.current = null;
     }
-  };
+  }
 
   const stopJog = () => {
     cancelJogTimers();
     void stopPtzVector();
   };
 
+  // Unmount: the vector drive stops any motion itself; clear local timers.
   useEffect(
     () => () => {
-      stopJog();
+      cancelJogTimers();
       if (telemetryTimerRef.current !== null) {
         window.clearTimeout(telemetryTimerRef.current);
         telemetryTimerRef.current = null;
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
@@ -542,6 +541,27 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
     void moveAxis(control, jog.sign, jog.direction);
   };
 
+  // Keyboard nudges on the vector-only path start continuous motion (key
+  // repeat acts as the heartbeat); releasing the key stops it.
+  const padKeyRelease = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!JOG_KEYS[event.key] && event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    if (vectorDrive.isMoving() && !jogActiveRef.current) {
+      void stopPtzVector();
+    }
+  };
+
+  const centerKey = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    if (!event.repeat) {
+      void centerPtz();
+    }
+  };
+
   const centerPtz = async () => {
     if (trackingLocksPtz) {
       return;
@@ -591,22 +611,13 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
     if (trackingLocksPtz) {
       return;
     }
-    const now = Date.now();
-    if (
-      vectorDragInFlightRef.current ||
-      isCenteredVector(vector) ||
-      now - vectorDragLastSentAtRef.current < PTZ_VECTOR_DRAG_THROTTLE_MS
-    ) {
+    if (isCenteredVector(vector)) {
+      // Dragged back to the middle while held: halt instead of re-sending
+      // the last off-center vector on every heartbeat.
+      await vectorDrive.stop();
       return;
     }
-    vectorDragInFlightRef.current = true;
-    vectorDragLastSentAtRef.current = now;
-    vectorMotionActiveRef.current = true;
-    try {
-      await pixyHid.sendPtzVector(vector);
-    } finally {
-      vectorDragInFlightRef.current = false;
-    }
+    await vectorDrive.move(vector);
   };
 
   const commitVectorPad = async (event: PointerEvent<HTMLButtonElement>) => {
@@ -671,7 +682,10 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
       return;
     }
     if (hidPresetSaveReady) {
-      await pixyHid.savePtzPreset((selectedPreset + 1) as PtzPresetSlot);
+      if ((await pixyHid.savePtzPreset((selectedPreset + 1) as PtzPresetSlot)) === false) {
+        // The panel's error strip shows why; do not mark the slot as saved.
+        return;
+      }
       // Optimistic fill from the measured position; refreshPresetSlot replaces it
       // with the device's stored coordinates when the query succeeds.
       setPresets((current) =>
@@ -710,7 +724,9 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
       if (presetTruthLoaded && !preset) {
         return;
       }
-      await pixyHid.loadPtzPreset((selectedPreset + 1) as PtzPresetSlot);
+      if ((await pixyHid.loadPtzPreset((selectedPreset + 1) as PtzPresetSlot)) === false) {
+        return;
+      }
       scheduleTelemetryPoll();
       if (preset?.zoom !== null && preset?.zoom !== undefined && zoom && !zoom.flags.includes("inactive")) {
         await controls.setValue(zoom.name, clamp(preset.zoom, zoom));
@@ -735,7 +751,9 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
     if (trackingLocksPtz || !hidPresetClearReady) {
       return;
     }
-    await pixyHid.clearPtzPreset((selectedPreset + 1) as PtzPresetSlot);
+    if ((await pixyHid.clearPtzPreset((selectedPreset + 1) as PtzPresetSlot)) === false) {
+      return;
+    }
     setPresets((current) => current.map((preset, index) => (index === selectedPreset ? null : preset)));
     await refreshPresetSlot(selectedPreset);
   };
@@ -781,7 +799,18 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
       {!hidWritable && pixyHid.status?.reason && <div className="mini-warning">{pixyHid.status.reason}</div>}
 
       <div className="ptz-deck">
-        <div className="ptz-pad" aria-label="Pan and tilt controls" onKeyDown={padKeyJog}>
+        <div
+          className="ptz-pad"
+          role="group"
+          aria-label="Pan and tilt controls"
+          aria-describedby="ptz-pad-keyboard-hint"
+          title={PAD_KEYBOARD_HINT}
+          onKeyDown={padKeyJog}
+          onKeyUp={padKeyRelease}
+        >
+          <span id="ptz-pad-keyboard-hint" hidden>
+            {PAD_KEYBOARD_HINT} Enter or Space on the center button recenters.
+          </span>
           <button
             className="ptz-direction ptz-up"
             style={touchNone}
@@ -859,7 +888,8 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
             onPointerCancel={() => void stopPtzVector()}
             onPointerLeave={() => void stopPtzVector()}
             onPointerUp={(event) => void commitVectorPad(event)}
-            title={hidPtzVectorReady ? "Point PTZ" : "Center PTZ"}
+            onKeyDown={centerKey}
+            title={hidPtzVectorReady ? "Point PTZ (drag to steer; Enter or Space recenters)" : "Center PTZ"}
             aria-label="Center PTZ"
           >
             <Crosshair size={24} />

@@ -318,6 +318,7 @@ export type VirtualCamActionResult = {
 
 export type AutomationSettings = {
   enabled: boolean;
+  // "auto" = the PIXY capture node the backend detects; otherwise a /dev/videoN path.
   video_device: string;
   on_open: "tracking" | "none";
   on_close: "privacy" | "previous" | "none";
@@ -401,15 +402,14 @@ export type AppSettingsUpdate = {
     port?: number;
     reload?: boolean;
   };
+  // `frontend.dist` and `storage.presets` are YAML-only (the API rejects them).
   frontend?: {
-    dist?: string;
     dev_server?: {
       host?: string;
       port?: number;
     };
   };
   storage?: {
-    presets?: string;
     recordings?: string;
   };
   hid?: {
