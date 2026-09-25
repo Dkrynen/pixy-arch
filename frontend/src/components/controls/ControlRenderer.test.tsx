@@ -65,7 +65,7 @@ describe("ControlRenderer", () => {
     );
 
     expect(screen.getByRole("button", { name: "HDR" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("combobox", { name: "Power Line Frequency" })).toHaveValue("1");
+    expect(screen.getByRole("combobox", { name: "Anti-flicker" })).toHaveValue("1");
     expect(screen.getByRole("slider", { name: "Brightness" })).toHaveValue("10");
   });
 

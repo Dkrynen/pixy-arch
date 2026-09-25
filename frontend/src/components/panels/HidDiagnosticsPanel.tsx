@@ -115,8 +115,8 @@ export function HidDiagnosticsPanel() {
   return (
     <section className="hid-diagnostics-panel">
       <div className="panel-title-row">
-        <Microscope size={18} />
-        <h2>HID Diagnostics</h2>
+        <Microscope size={16} />
+        <h2>HID diagnostics</h2>
       </div>
 
       <div className="diagnostic-actions">
@@ -128,10 +128,10 @@ export function HidDiagnosticsPanel() {
           <Save size={14} />
           <span>{pending === "save" ? "Saving" : "Save"}</span>
         </button>
-        <button className="icon-button" disabled={!snapshot || pending !== null} aria-label="Copy HID snapshot" onClick={() => void copySnapshot()}>
+        <button className="icon-button" disabled={!snapshot || pending !== null} aria-label="Copy HID snapshot" title="Copy snapshot JSON" onClick={() => void copySnapshot()}>
           <Clipboard size={15} />
         </button>
-        <button className="icon-button" disabled={!snapshot} aria-label="Download HID snapshot" onClick={downloadSnapshot}>
+        <button className="icon-button" disabled={!snapshot} aria-label="Download HID snapshot" title="Download snapshot JSON" onClick={downloadSnapshot}>
           <Download size={15} />
         </button>
       </div>

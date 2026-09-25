@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Camera, Presentation } from "lucide-react";
+import { MonitorPlay } from "lucide-react";
 
 import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
 import type { UseVirtualCamResult } from "../../hooks/useVirtualCam";
+import { rangeFill } from "../../lib/rangeFill";
 import type { VideoFormatOption, VirtualCamTransform } from "../../types/api";
 import "./VirtualCamPanel.css";
 
@@ -85,16 +86,18 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
       : null;
   const consumers = status?.consumers ?? 0;
 
+  const stateTone = running ? "good" : standby ? "info" : status?.available ? "neutral" : "warn";
+
   return (
-    <section className="smart-panel">
+    <section className="smart-panel vcam-panel">
       <div className="panel-title-row">
-        <Camera size={18} />
-        <h2>Virtual Camera</h2>
+        <MonitorPlay size={16} />
+        <h2>Virtual camera</h2>
       </div>
 
-      <div className="hid-status-row">
-        <span className={`hid-dot ${running ? "is-ready" : status?.available ? "is-warn" : ""}`} />
-        <div>
+      <div className={`vcam-status tone-${stateTone}`}>
+        <span className={`hid-dot ${running ? "is-ready" : standby ? "is-info" : status?.available ? "" : "is-warn"}`} />
+        <div className="vcam-status-copy">
           <strong>
             {running
               ? `Streaming (${status?.pipeline})`
@@ -121,121 +124,9 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
             </small>
           )}
         </div>
-      </div>
-
-      {virtualCam.error && <div className="mini-error">{virtualCam.error}</div>}
-      {!running && status?.last_error && (
-        <div className="vcam-last-error" role="status">
-          Last run ended: {status.last_error}
-        </div>
-      )}
-
-      <div className="smart-control-stack">
-        <div className="smart-control">
-          <div className="smart-label">
-            <Presentation size={16} />
-            <span>Mode</span>
-          </div>
-          <div className="segmented">
-            <button
-              className={pipeline === "transform" ? "is-selected" : ""}
-              aria-pressed={pipeline === "transform"}
-              disabled={disabled || running}
-              onClick={() => setPipeline("transform")}
-            >
-              Transform
-            </button>
-            <button
-              className={pipeline === "whiteboard" ? "is-selected" : ""}
-              aria-pressed={pipeline === "whiteboard"}
-              disabled={disabled || running}
-              onClick={() => setPipeline("whiteboard")}
-            >
-              Whiteboard
-            </button>
-          </div>
-        </div>
-
-        <div className="smart-control">
-          <div className="smart-label">
-            <span>Camera format</span>
-          </div>
-          <select
-            className="vcam-quality-select"
-            aria-label="Camera format"
-            value={qualityIndex ?? defaultIndex}
-            disabled={disabled || running || formats.length === 0}
-            onChange={(event) => setQualityIndex(Number(event.target.value))}
-          >
-            {formats.map((format, index) => (
-              <option key={`${format.pixel_format}-${format.width}x${format.height}-${format.fps}`} value={index}>
-                {formatOptionLabel(format)}
-              </option>
-            ))}
-            {formats.length === 0 && quality && <option value={0}>{formatOptionLabel(quality)}</option>}
-          </select>
-          <small className="vcam-field-hint">
-            Resolution, frame rate and encoding captured from the Pixy — output matches it.
-          </small>
-        </div>
-
-        {pipeline === "transform" && (
-          <>
-            <div className="smart-control smart-toggle-row">
-              <div className="smart-label">
-                <span>Mirror</span>
-              </div>
-              <button
-                className={`toggle-switch ${transform.mirror ? "is-on" : ""}`}
-                disabled={disabled || running}
-                aria-pressed={transform.mirror}
-                aria-label="Mirror"
-                onClick={() => setTransform((t) => ({ ...t, mirror: !t.mirror }))}
-              >
-                <span />
-              </button>
-            </div>
-
-            <div className="smart-control">
-              <div className="smart-label">
-                <span>Rotate</span>
-              </div>
-              <div className="segmented">
-                {rotateOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    className={transform.rotate === option.value ? "is-selected" : ""}
-                    aria-pressed={transform.rotate === option.value}
-                    disabled={disabled || running}
-                    onClick={() => setTransform((t) => ({ ...t, rotate: option.value }))}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="smart-control">
-              <div className="smart-label">
-                <span>Zoom {transform.zoom.toFixed(1)}x</span>
-              </div>
-              <input
-                type="range"
-                aria-label="Virtual camera zoom"
-                min={1}
-                max={4}
-                step={0.1}
-                value={transform.zoom}
-                disabled={disabled || running}
-                onChange={(event) => setTransform((t) => ({ ...t, zoom: Number(event.target.value) }))}
-              />
-            </div>
-          </>
-        )}
-
-        <div className="smart-control">
+        <div className="vcam-primary">
           {running ? (
-            <button className="primary-action" disabled={disabled} onClick={() => void virtualCam.stop()}>
+            <button className="secondary-button" disabled={disabled} onClick={() => void virtualCam.stop()}>
               {virtualCam.pending ? "Stopping…" : "Stop virtual camera"}
             </button>
           ) : (
@@ -247,65 +138,173 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
               {virtualCam.pending ? "Starting…" : "Start virtual camera"}
             </button>
           )}
-          <small className="vcam-obs-hint">
-            {running ? (
-              <>
-                In OBS: add a Video Capture Device source and pick{" "}
-                <strong>{status?.sink_path ?? "the virtual camera"}</strong>. The live monitor shows
-                this same feed while the pipeline runs.
-              </>
-            ) : standby ? (
-              <>
-                <strong>{status?.sink_path ?? "The virtual camera"}</strong> stays listed in OBS —
-                the camera powers up only while an app is reading it.
-              </>
-            ) : (
-              <>
-                The loopback only advertises a camera while it is streaming — keep it running
-                (or enable startup below) for OBS to see it.
-              </>
-            )}
-          </small>
+        </div>
+      </div>
+
+      {virtualCam.error && <div className="mini-error">{virtualCam.error}</div>}
+      {!running && status?.last_error && (
+        <div className="vcam-last-error" role="status">
+          Last run ended: {status.last_error}
+        </div>
+      )}
+
+      <p className="vcam-obs-hint">
+        {running ? (
+          <>
+            In OBS: add a Video Capture Device source and pick{" "}
+            <strong>{status?.sink_path ?? "the virtual camera"}</strong>. The live monitor shows
+            this same feed while the pipeline runs.
+          </>
+        ) : standby ? (
+          <>
+            <strong>{status?.sink_path ?? "The virtual camera"}</strong> stays listed in OBS —
+            the camera powers up only while an app is reading it.
+          </>
+        ) : (
+          <>
+            The loopback only advertises a camera while it is streaming — keep it running
+            (or enable startup below) for OBS to see it.
+          </>
+        )}
+      </p>
+
+      <div className="vcam-columns">
+        <div className="form-section">
+          <span className="section-label">Output</span>
+          <div className="form-row">
+            <span className="form-label">Mode</span>
+            <div className="segmented" role="group" aria-label="Pipeline">
+              <button
+                className={pipeline === "transform" ? "is-selected" : ""}
+                aria-pressed={pipeline === "transform"}
+                disabled={disabled || running}
+                onClick={() => setPipeline("transform")}
+              >
+                Transform
+              </button>
+              <button
+                className={pipeline === "whiteboard" ? "is-selected" : ""}
+                aria-pressed={pipeline === "whiteboard"}
+                disabled={disabled || running}
+                onClick={() => setPipeline("whiteboard")}
+              >
+                Whiteboard
+              </button>
+            </div>
+          </div>
+
+          <div className="form-row" title="Resolution, frame rate and encoding captured from the Pixy — output matches it.">
+            <span className="form-label">Camera format</span>
+            <select
+              className="vcam-quality-select"
+              aria-label="Camera format"
+              value={qualityIndex ?? defaultIndex}
+              disabled={disabled || running || formats.length === 0}
+              onChange={(event) => setQualityIndex(Number(event.target.value))}
+            >
+              {formats.map((format, index) => (
+                <option key={`${format.pixel_format}-${format.width}x${format.height}-${format.fps}`} value={index}>
+                  {formatOptionLabel(format)}
+                </option>
+              ))}
+              {formats.length === 0 && quality && <option value={0}>{formatOptionLabel(quality)}</option>}
+            </select>
+          </div>
+
+          {pipeline === "transform" && (
+            <>
+              <div className="form-row">
+                <span className="form-label">Rotate</span>
+                <div className="segmented" role="group" aria-label="Rotation">
+                  {rotateOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      className={transform.rotate === option.value ? "is-selected" : ""}
+                      aria-pressed={transform.rotate === option.value}
+                      disabled={disabled || running}
+                      onClick={() => setTransform((t) => ({ ...t, rotate: option.value }))}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="form-row">
+                <span className="form-label">Zoom</span>
+                <div className="form-slider">
+                  <input
+                    type="range"
+                    aria-label="Virtual camera zoom"
+                    min={1}
+                    max={4}
+                    step={0.1}
+                    value={transform.zoom}
+                    style={rangeFill(transform.zoom, 1, 4)}
+                    disabled={disabled || running}
+                    onChange={(event) => setTransform((t) => ({ ...t, zoom: Number(event.target.value) }))}
+                  />
+                  <output>{transform.zoom.toFixed(1)}×</output>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <span className="form-label">Mirror</span>
+                <button
+                  className={`toggle-switch ${transform.mirror ? "is-on" : ""}`}
+                  disabled={disabled || running}
+                  aria-pressed={transform.mirror}
+                  aria-label="Mirror"
+                  onClick={() => setTransform((t) => ({ ...t, mirror: !t.mirror }))}
+                >
+                  <span />
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
-        <div className="smart-control smart-toggle-row">
-          <div className="smart-label">
-            <span>Run at startup</span>
+        <div className="form-section">
+          <span className="section-label">Startup</span>
+          <div className="form-row has-hint">
+            <div className="form-copy">
+              <span className="form-label">Run at startup</span>
+              <small className="vcam-field-hint">
+                {autostart
+                  ? "Sink is managed from boot — OBS always sees the camera."
+                  : "Start the pipeline manually; the device appears in OBS only while streaming."}
+              </small>
+            </div>
+            <button
+              className={`toggle-switch ${autostart ? "is-on" : ""}`}
+              disabled={privacySafety.settingsPending || !privacySafety.settingsLoaded}
+              aria-pressed={autostart}
+              aria-label="Run virtual camera at startup"
+              onClick={() => toggleAutostart(!autostart)}
+            >
+              <span />
+            </button>
           </div>
-          <button
-            className={`toggle-switch ${autostart ? "is-on" : ""}`}
-            disabled={privacySafety.settingsPending || !privacySafety.settingsLoaded}
-            aria-pressed={autostart}
-            aria-label="Run virtual camera at startup"
-            onClick={() => toggleAutostart(!autostart)}
-          >
-            <span />
-          </button>
-          <small className="vcam-field-hint">
-            {autostart
-              ? "Sink is managed from boot — OBS always sees the camera."
-              : "Start the pipeline manually; the device appears in OBS only while streaming."}
-          </small>
-        </div>
 
-        <div className="smart-control smart-toggle-row">
-          <div className="smart-label">
-            <span>On demand</span>
+          <div className="form-row has-hint">
+            <div className="form-copy">
+              <span className="form-label">On demand</span>
+              <small className="vcam-field-hint">
+                {onDemand
+                  ? "Standby feed holds the sink; the Pixy powers up only while an app reads it."
+                  : "Once started the camera streams continuously until stopped."}
+              </small>
+            </div>
+            <button
+              className={`toggle-switch ${onDemand ? "is-on" : ""}`}
+              disabled={privacySafety.settingsPending || !privacySafety.settingsLoaded}
+              aria-pressed={onDemand}
+              aria-label="Run the camera only while an app uses it"
+              onClick={() => toggleOnDemand(!onDemand)}
+            >
+              <span />
+            </button>
           </div>
-          <button
-            className={`toggle-switch ${onDemand ? "is-on" : ""}`}
-            disabled={privacySafety.settingsPending || !privacySafety.settingsLoaded}
-            aria-pressed={onDemand}
-            aria-label="Run the camera only while an app uses it"
-            onClick={() => toggleOnDemand(!onDemand)}
-          >
-            <span />
-          </button>
-          <small className="vcam-field-hint">
-            {onDemand
-              ? "Standby feed holds the sink; the Pixy powers up only while an app reads it."
-              : "Once started the camera streams continuously until stopped."}
-          </small>
         </div>
       </div>
     </section>

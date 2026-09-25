@@ -1,4 +1,4 @@
-/* HidDiagnosticsPanel-local styles. Reuses .diagnostic-* classes from styles.css. */
+/* HidDiagnosticsPanel-local styles. Row chrome is shared from styles.css. */
 
 .query-explorer {
   display: grid;
@@ -10,19 +10,17 @@
 
 .query-explorer .menu-select {
   width: 100%;
+  text-transform: capitalize;
 }
 
 .query-explorer-result {
   margin-bottom: var(--space-3);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--border);
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .diagnostic-decoded {
-  display: block;
-  margin-top: 3px;
-  color: var(--ok);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
+  color: var(--ok-text) !important;
 }

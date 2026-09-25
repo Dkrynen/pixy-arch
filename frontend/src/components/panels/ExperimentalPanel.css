@@ -2,7 +2,7 @@
 
 .uvc-experimental-note {
   display: block;
-  font-size: 0.72rem;
-  opacity: 0.6;
-  margin: 2px 0 0;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.45;
 }

@@ -279,7 +279,7 @@ Current mapping from that project, retained by Pixy Arch for diagnostics and fut
 
 The three trailing values are little-endian float32 fields. PixyBar uses `0.5`, `0.5`, and `1.0` when enabling tracking. EMEET Studio does not expose Face/Half/Full labels, and local Linux testing saw Full-body read back as Face, so these values are not treated as confirmed user-facing controls.
 
-The Windows Focus/Metering UI maps better to the confirmed focus-metering command family: Center, Face, and selected Region. Pixy Arch exposes those controls in Focus Control and uses preview clicks to send selected-area X/Y coordinates.
+The Windows Focus/Metering UI maps better to the confirmed focus-metering command family: Center, Face, and selected Region. Pixy Arch exposes those controls in the Focus panel and uses preview clicks to send selected-area X/Y coordinates.
 
 ### Auto Privacy Delay
 
@@ -477,7 +477,7 @@ POST /api/devices/{videoN}/uvc-extension/capture?save=false
 POST /api/devices/{videoN}/uvc-extension/capture?save=true
 ```
 
-The web UI exposes the same flow in `Future Deck -> UVC Extension`. `Probe` reads unit `2`, selectors `1..10`, and displays `GET_LEN`, `GET_INFO`, `GET_CUR`, `GET_MIN`, `GET_MAX`, `GET_RES`, and `GET_DEF` results when the device returns them. `Save` writes timestamped JSON snapshots under `diagnostics/uvc/`.
+The web UI exposes the same flow in `Diagnostics -> UVC extension`. `Probe` reads unit `2`, selectors `1..10`, and displays `GET_LEN`, `GET_INFO`, `GET_CUR`, `GET_MIN`, `GET_MAX`, `GET_RES`, and `GET_DEF` results when the device returns them. `Save` writes timestamped JSON snapshots under `diagnostics/uvc/`.
 
 Saved snapshots are compared with the latest prior saved snapshot for the same device. The UI and JSON mark `changed_selectors`, `changed_since_previous`, and `changed_fields`, which makes official-app packet captures easier to correlate with Linux-side state.
 
@@ -598,7 +598,7 @@ Current conclusion:
 - This capture maps AF off/on to standard UVC `Focus, Auto`, not to HID.
 - Turning the control off also made EMEET Studio write `Focus Absolute = 512`.
 - This is not a separate Smart Pixy tracking command. It maps to standard UVC autofocus.
-- Pixy Arch already exposes this behavior through Focus Control as `focus_automatic_continuous` plus `focus_absolute`.
+- Pixy Arch already exposes this behavior through the Focus panel as `focus_automatic_continuous` plus `focus_absolute`.
 
 ## Focus/Metering And Control Captures
 
@@ -708,7 +708,7 @@ Current interpretation of selected-area payload:
 - The three named modes are safe to expose. Selected-area clicking should be treated as experimental until the preview-to-device coordinate transform is validated.
 - The earlier mockup labels `AF Trigger` and `AF Lock` should not be treated as separate missing official-app commands unless EMEET Studio exposes literal actions with those names. The captured official behavior corresponding to "focus on person" and "focus on position" is this Focus/Metering HID mode family.
 
-Pixy Arch implements the three captured Focus/Metering modes as Focus target buttons in the Focus Control panel. The selected-area button currently uses the captured center-ish coordinate payload until a live preview click target is added.
+Pixy Arch implements the three captured Focus/Metering modes as Focus target buttons in the Focus panel. The selected-area button currently uses the captured center-ish coordinate payload until a live preview click target is added.
 
 ## Directional PTZ HID Jog
 

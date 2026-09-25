@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Mic, PhoneCall, Shield } from "lucide-react";
 
 import type { AutomationSettings, UseAutomationResult } from "../../hooks/useAutomation";
+import { rangeFill } from "../../lib/rangeFill";
 
 type Props = {
   automation: UseAutomationResult;
@@ -35,10 +36,10 @@ export function AutomationPanel({ automation }: Props) {
   const unmuteMic = settings?.unmute_mic ?? true;
 
   return (
-    <section className="smart-panel">
+    <section className="smart-panel automation-panel">
       <div className="panel-title-row">
-        <PhoneCall size={18} />
-        <h2>Call Automation</h2>
+        <PhoneCall size={16} />
+        <h2>Call automation</h2>
       </div>
 
       <div className="hid-status-row">
@@ -69,7 +70,7 @@ export function AutomationPanel({ automation }: Props) {
       <div className="smart-control-stack">
         <div className="smart-control smart-toggle-row">
           <div className="smart-label">
-            <Shield size={16} />
+            <Shield size={15} />
             <span>Enabled</span>
           </div>
           <button
@@ -155,7 +156,7 @@ export function AutomationPanel({ automation }: Props) {
 
         <div className="smart-control smart-toggle-row">
           <div className="smart-label">
-            <Mic size={16} />
+            <Mic size={15} />
             <span>Unmute mic</span>
           </div>
           <button
@@ -175,7 +176,8 @@ export function AutomationPanel({ automation }: Props) {
 
         <div className="smart-control">
           <div className="smart-label">
-            <span>End delay {graceValue}s</span>
+            <span>End delay</span>
+            <output>{graceValue}s</output>
           </div>
           <input
             type="range"
@@ -183,6 +185,7 @@ export function AutomationPanel({ automation }: Props) {
             max={30}
             step={1}
             value={graceValue}
+            style={rangeFill(graceValue, 0, 30)}
             disabled={disabled}
             aria-label="Call end delay seconds"
             onChange={(event) => setGraceDraft(Number(event.target.value))}

@@ -57,7 +57,7 @@ describe("DeviceRail", () => {
     expect(screen.getByText(/\/dev\/video0/)).toBeInTheDocument();
 
     const picker = screen.getByRole("combobox", { name: "Select video device" });
-    expect(picker).toHaveDisplayValue("VIDEO0 - EMEET PIXY");
+    expect(picker).toHaveDisplayValue("video0 · EMEET PIXY");
     expect(screen.getByText(/uvcvideo/)).toBeInTheDocument();
     expect(screen.getByText(/usb-0000:c8:00.3-1/)).toBeInTheDocument();
     await act(async () => undefined);
@@ -80,8 +80,8 @@ describe("DeviceRail", () => {
       />
     );
 
-    expect(screen.getByRole("option", { name: /VIDEO11/ })).toHaveTextContent("VIDEO11 - Virtual");
-    expect(screen.getByRole("option", { name: /VIDEO12/ })).toHaveTextContent("VIDEO12 - Virtual");
+    expect(screen.getByRole("option", { name: /video11/ })).toHaveTextContent("video11 · Virtual");
+    expect(screen.getByRole("option", { name: /video12/ })).toHaveTextContent("video12 · Virtual");
     await act(async () => undefined);
   });
 
@@ -95,7 +95,7 @@ describe("DeviceRail", () => {
       />
     );
 
-    const option = screen.getByRole("option", { name: /VIDEO10/ });
+    const option = screen.getByRole("option", { name: /video10/ });
     expect(option).toHaveTextContent("Virtual");
     await act(async () => undefined);
   });

@@ -1,146 +1,192 @@
-/* VideoMonitor-only styles. Scoped under .video-monitor to avoid collisions
-   with the global stylesheet (styles.css is owned by the design workstream). */
+/* VideoMonitor overlays. Frame, footer and toolbar chrome live in styles.css. */
 
-.video-monitor .video-overlay {
+/* Soft scrims keep overlay chips legible on bright frames. */
+.video-monitor .video-scrim {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
-  gap: 6px;
-  padding: 16px;
-  text-align: center;
-  color: var(--text-1);
-  background: color-mix(in srgb, var(--bg) 75%, transparent);
-  backdrop-filter: blur(2px);
-  z-index: 2;
-}
-
-.video-monitor .video-overlay svg {
-  color: var(--accent);
-}
-
-.video-monitor .video-overlay strong {
-  color: var(--text-1);
-  font-size: 13px;
-  text-transform: uppercase;
-}
-
-.video-monitor .video-overlay span {
-  color: var(--text-2);
-  font-size: 12px;
-  max-width: 34ch;
-}
-
-.video-monitor .video-overlay .secondary-button {
-  margin-top: 4px;
-}
-
-.video-monitor .video-overlay.is-privacy svg {
-  color: var(--warn);
-}
-
-.video-monitor .video-connecting {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  gap: 6px;
-  color: var(--text-2);
-  font-size: 12px;
-  background: var(--surface-inset);
   z-index: 1;
   pointer-events: none;
-}
-
-.video-monitor .video-connecting svg {
-  animation: video-monitor-spin 1.1s linear infinite;
-  color: var(--accent);
-}
-
-@keyframes video-monitor-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.42) 0%, rgba(0, 0, 0, 0) 20%),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0) 18%);
 }
 
 .video-monitor .video-chip {
   position: absolute;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--accent-border);
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
-  color: var(--text-1);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  z-index: 3;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-xs);
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(9, 9, 11, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
   pointer-events: none;
+}
+
+.video-monitor .video-chip svg {
+  flex: none;
 }
 
 .video-monitor .video-chip .chip-action {
   pointer-events: auto;
 }
 
-.video-monitor .video-chip-recording {
-  top: 8px;
-  left: 8px;
-  border-color: var(--danger);
-  color: color-mix(in srgb, var(--danger) 65%, white);
+.video-monitor .video-chip-format {
+  top: 12px;
+  right: 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
-.video-monitor .video-chip-recording .rec-dot {
+.video-monitor .video-chip-recording {
+  top: 12px;
+  left: 12px;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  background: var(--danger-fill);
+  backdrop-filter: none;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.video-monitor .rec-dot {
+  display: inline-block;
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--danger);
-  animation: video-monitor-rec-pulse 1.2s ease-in-out infinite;
+  background: currentColor;
+  animation: pulse-dot 1.2s ease-in-out infinite;
 }
 
-@keyframes video-monitor-rec-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
+.video-monitor .video-placeholder .rec-dot {
+  color: var(--danger);
 }
 
 .video-monitor .video-chip-focus {
-  bottom: 8px;
-  left: 8px;
+  bottom: 12px;
+  left: 12px;
 }
 
 .video-monitor .video-chip-mode {
-  bottom: 8px;
-  right: 8px;
+  right: 12px;
+  bottom: 12px;
+  padding-right: 4px;
 }
 
 .video-monitor .chip-action {
-  border: 1px solid var(--accent-border);
-  border-radius: 5px;
-  padding: 2px 7px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .video-monitor .chip-action:hover {
-  background: var(--accent-soft);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Round icon badge used by the idle, privacy and failure states. */
+.video-monitor .video-overlay-icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.video-monitor .video-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 20px;
+  color: var(--text-1);
+  text-align: center;
+  background: rgba(7, 7, 9, 0.78);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.video-monitor .video-overlay strong {
+  margin-top: 4px;
+  color: var(--text-1);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.video-monitor .video-overlay > span:not(.video-overlay-icon) {
+  max-width: 40ch;
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.video-monitor .video-overlay .secondary-button {
+  margin-top: 6px;
+}
+
+/* Privacy reads as a state: amber lens-closed badge over a dimmed frame. */
+.video-monitor .video-overlay.is-privacy .video-overlay-icon {
+  border-color: var(--warn-border);
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.video-monitor .video-overlay.is-failed .video-overlay-icon {
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+  background: var(--danger-soft);
 }
 
 .video-monitor .video-frame.is-privacy img {
-  filter: brightness(0.35) saturate(0.4);
+  filter: brightness(0.3) saturate(0.2) blur(6px);
 }
 
 .video-monitor .video-frame.stream-failed {
   border-color: var(--danger-border);
+}
+
+.video-monitor .video-connecting {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  color: var(--text-2);
+  background: var(--frame);
+  font-size: 12.5px;
+  pointer-events: none;
+}
+
+.video-monitor .video-connecting svg {
+  color: var(--accent);
+  animation: spin 1s linear infinite;
 }
 
 /* Fill mode: crop to fill the frame — no letterbox bars. Click-to-focus
@@ -152,12 +198,50 @@
 /* True fullscreen preview for clean captures. */
 .video-monitor .video-frame:fullscreen {
   aspect-ratio: auto;
-  max-height: none;
-  border: none;
+  border: 0;
   border-radius: 0;
-  background: var(--bg);
+  box-shadow: none;
+  background: #000;
 }
 
 .video-monitor .video-frame:fullscreen img {
-  max-height: none;
+  background: #000;
+}
+
+@media (max-width: 720px) {
+  .video-monitor .video-chip-format {
+    display: none;
+  }
+
+  .video-monitor .video-chip {
+    top: 8px;
+  }
+
+  .video-monitor .video-chip-recording {
+    left: 8px;
+  }
+
+  .video-monitor .video-chip-focus,
+  .video-monitor .video-chip-mode {
+    top: auto;
+    bottom: 8px;
+  }
+
+  .video-monitor .video-chip-focus {
+    left: 8px;
+  }
+
+  .video-monitor .video-chip-mode {
+    right: 8px;
+  }
+
+  .video-monitor .video-chip-mode {
+    height: auto;
+    padding: 3px 3px 3px 10px;
+  }
+
+  .video-monitor .chip-action {
+    height: 40px;
+    padding: 0 12px;
+  }
 }

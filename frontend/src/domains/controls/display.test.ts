@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { V4L2Control } from "../../types/api";
-import { boolOptionLabels, controlDisplayLabel, dependencyAction, dependencyHint } from "./display";
+import {
+  boolOptionLabels,
+  controlDisplayLabel,
+  controlNumberText,
+  dependencyAction,
+  dependencyHint,
+  rawControlTitle
+} from "./display";
 
 function control(overrides: Partial<V4L2Control>): V4L2Control {
   return {
@@ -34,6 +41,8 @@ describe("controlDisplayLabel", () => {
 
   it("falls back to the driver label for unmapped controls", () => {
     expect(controlDisplayLabel(control({ name: "sharpness", label: "Sharpness" }))).toBe("Sharpness");
+    expect(controlDisplayLabel(control({ name: "focus_automatic_continuous", label: "Focus, Automatic Continuous" }))).toBe("Focus Mode");
+    expect(controlDisplayLabel(control({ name: "exposure_dynamic_framerate", label: "Exposure, Dynamic Framerate" }))).toBe("Dynamic Framerate");
   });
 });
 
@@ -135,5 +144,17 @@ describe("boolOptionLabels", () => {
       { value: 0, label: "Off" },
       { value: 1, label: "On" }
     ]);
+  });
+
+  it("adds units to numeric readouts where the driver implies one", () => {
+    expect(controlNumberText("white_balance_temperature", 4600)).toBe("4600 K");
+    expect(controlNumberText("brightness", 128)).toBe("128");
+  });
+
+  it("keeps the raw control details for tooltips", () => {
+    expect(rawControlTitle({ name: "pan_absolute", value: 3600, min: -522000, max: 522000, step: 3600 })).toBe(
+      "pan_absolute · raw 3600 · range -522000..522000 · step 3600"
+    );
+    expect(rawControlTitle({ name: "gain", value: 5, min: null, max: null, step: 1 })).toBe("gain · raw 5");
   });
 });

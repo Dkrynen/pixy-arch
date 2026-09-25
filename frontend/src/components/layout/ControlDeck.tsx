@@ -1,5 +1,6 @@
-import { RadioTower } from "lucide-react";
+import type { ReactNode } from "react";
 
+import type { ControlGroup } from "../../domains/controls/grouping";
 import type { UseAudioResult } from "../../hooks/useAudio";
 import type { UseControlPresetsResult } from "../../hooks/useControlPresets";
 import type { UseControlsResult } from "../../hooks/useControls";
@@ -17,6 +18,8 @@ import { VirtualCamPanel } from "../panels/VirtualCamPanel";
 
 type Props = {
   deviceName: string | null;
+  /** The device picker, rendered in the side column (last on narrow screens). */
+  deviceBay?: ReactNode;
   controls: UseControlsResult;
   videoFormats: UseVideoFormatsResult;
   videoCapture: UseVideoCaptureResult;
@@ -28,8 +31,15 @@ type Props = {
   controlPresets: UseControlPresetsResult;
 };
 
+/*
+ * Wide screens: a main column (monitor, imaging, virtual camera) and a side
+ * column (PTZ, Smart Pixy, device, firmware). Narrow screens flatten both
+ * columns and reorder the slots so the operator sees monitor → PTZ → Smart
+ * Pixy first and the device bay last (see .deck-slot ordering in styles.css).
+ */
 export function ControlDeck({
   deviceName,
+  deviceBay,
   controls,
   videoFormats,
   videoCapture,
@@ -40,71 +50,51 @@ export function ControlDeck({
   privacySafety,
   controlPresets
 }: Props) {
+  const groups = controls.groups.filter((group) => group.id !== "smart");
+  const byId = (id: ControlGroup["id"]) => groups.find((group) => group.id === id);
+  const ptz = byId("ptz");
+  const image = byId("image");
+  const focus = byId("focus");
+  const exposure = byId("exposure");
+  const other = byId("other");
+  const renderGroup = (group: ControlGroup) => (
+    <ControlGroupPanel group={group} controls={controls} pixyHid={pixyHid} controlPresets={controlPresets} />
+  );
+
   return (
     <div className="operator-deck">
       <div className="operator-main">
-        <VideoMonitor
-          deviceName={deviceName}
-          videoFormats={videoFormats}
-          videoCapture={videoCapture}
-          pixyHid={pixyHid}
-          virtualCamRunning={virtualCam.status?.running === true}
-        />
-        <div className="control-grid">
-          {controls.groups.filter((group) => group.id !== "smart").map((group) => (
-            <ControlGroupPanel
-              key={group.id}
-              group={group}
-              controls={controls}
-              pixyHid={pixyHid}
-              controlPresets={controlPresets}
-            />
-          ))}
-        </div>
-        <div className="deck-pair">
-          <VirtualCamPanel
-            virtualCam={virtualCam}
+        <div className="deck-slot slot-monitor">
+          <VideoMonitor
+            deviceName={deviceName}
             videoFormats={videoFormats}
-            privacySafety={privacySafety}
+            videoCapture={videoCapture}
+            pixyHid={pixyHid}
+            virtualCamRunning={virtualCam.status?.running === true}
           />
-          <FirmwarePanel firmware={firmware} />
+        </div>
+        {image && <div className="deck-slot slot-image">{renderGroup(image)}</div>}
+        {(focus || exposure) && (
+          <div className="deck-slot slot-lens deck-pair">
+            {focus && renderGroup(focus)}
+            {exposure && renderGroup(exposure)}
+          </div>
+        )}
+        {other && <div className="deck-slot slot-other">{renderGroup(other)}</div>}
+        <div className="deck-slot slot-vcam">
+          <VirtualCamPanel virtualCam={virtualCam} videoFormats={videoFormats} privacySafety={privacySafety} />
         </div>
       </div>
       <aside className="operator-side">
-        <SignalPanel controls={controls} videoCapture={videoCapture} />
-        <SmartPixyPanel pixyHid={pixyHid} audio={audio} privacySafety={privacySafety} />
+        {ptz && <div className="deck-slot slot-ptz">{renderGroup(ptz)}</div>}
+        <div className="deck-slot slot-smart">
+          <SmartPixyPanel pixyHid={pixyHid} audio={audio} privacySafety={privacySafety} />
+        </div>
+        {deviceBay && <div className="deck-slot slot-device">{deviceBay}</div>}
+        <div className="deck-slot slot-firmware">
+          <FirmwarePanel firmware={firmware} />
+        </div>
       </aside>
-    </div>
-  );
-}
-
-function SignalPanel({
-  controls,
-  videoCapture
-}: {
-  controls: UseControlsResult;
-  videoCapture: UseVideoCaptureResult;
-}) {
-  return (
-    <div className="signal-panel compact-signal-panel">
-      <div className="panel-title-row">
-        <RadioTower size={18} />
-        <h2>Signal</h2>
-      </div>
-      <div className="telemetry-stack">
-        <div>
-          <span>V4L2</span>
-          <strong>{controls.isLoading ? "Scanning" : "Ready"}</strong>
-        </div>
-        <div>
-          <span>Controls</span>
-          <strong>{controls.controls.length}</strong>
-        </div>
-        <div>
-          <span>Stream</span>
-          <strong>{videoCapture.previewEnabled ? "Live" : "Idle"}</strong>
-        </div>
-      </div>
     </div>
   );
 }

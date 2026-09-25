@@ -6,12 +6,13 @@ import {
   ChevronsDown,
   Crosshair,
   Home,
+  Lock,
+  Navigation,
   Save,
   Trash2
 } from "lucide-react";
 
 import type { ControlGroup } from "../../domains/controls/grouping";
-import { controlValueText } from "../../domains/controls/grouping";
 import {
   formatDegrees,
   motorPositionFromQuery,
@@ -21,11 +22,14 @@ import {
   PTZ_PAN_RANGE_DEGREES,
   PTZ_TILT_RANGE_DEGREES
 } from "../../domains/ptz/hidTelemetry";
+import { rawControlTitle } from "../../domains/controls/display";
+import { ptzScaleLabels, ptzValueText } from "../../domains/ptz/units";
 import { isCenteredVector, ptzVectorFromPadPoint, vectorPadPosition } from "../../domains/ptz/vectorPad";
 import type { UseControlsResult } from "../../hooks/useControls";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import { usePtzVectorDrive } from "../../hooks/usePtzVectorDrive";
 import { fetchPixyHidQuery } from "../../lib/apiClient";
+import { rangeFill } from "../../lib/rangeFill";
 import type {
   PixyHidQueryName,
   PixyHidRawQueryResult,
@@ -155,11 +159,12 @@ function AxisControl({ label, control, disabled, onSetValue }: AxisControlProps)
   if (!control) {
     return (
       <div className="ptz-axis is-missing">
-        <div className="ptz-axis-copy">
-          <span>{label}</span>
-          <small>Not exposed</small>
+        <div className="ptz-axis-header">
+          <div className="ptz-axis-copy">
+            <span>{label}</span>
+          </div>
+          <strong>Not exposed</strong>
         </div>
-        <strong>Missing</strong>
       </div>
     );
   }
@@ -168,6 +173,7 @@ function AxisControl({ label, control, disabled, onSetValue }: AxisControlProps)
   const max = control.max ?? 100;
   const step = stepFor(control);
   const inactive = control.flags.includes("inactive");
+  const [scaleMin, scaleMid, scaleMax] = ptzScaleLabels(control);
 
   const commit = () => {
     if (draftValue !== control.value) {
@@ -176,22 +182,23 @@ function AxisControl({ label, control, disabled, onSetValue }: AxisControlProps)
   };
 
   return (
-    <div className={`ptz-axis ${inactive ? "is-inactive" : ""}`}>
+    <div className={`ptz-axis ${inactive ? "is-inactive" : ""}`} title={rawControlTitle({ ...control, value: draftValue })}>
       <div className="ptz-axis-header">
         <div className="ptz-axis-copy">
           <span>{label}</span>
-          <small>{control.name}</small>
         </div>
-        <strong>{controlValueText(control)}</strong>
+        <strong>{control.value_label ?? ptzValueText(control.name, draftValue, control.min)}</strong>
       </div>
       <input
         className="range-input ptz-axis-range"
         type="range"
         aria-label={label}
+        aria-valuetext={ptzValueText(control.name, draftValue, control.min)}
         min={min}
         max={max}
         step={step}
         value={draftValue}
+        style={rangeFill(draftValue, min, max)}
         disabled={disabled || inactive}
         onChange={(event) => setDraftValue(Number(event.target.value))}
         onPointerUp={commit}
@@ -202,10 +209,10 @@ function AxisControl({ label, control, disabled, onSetValue }: AxisControlProps)
           }
         }}
       />
-      <div className="ptz-axis-scale">
-        <span>{min}</span>
-        <span>{label === "Zoom" ? "" : 0}</span>
-        <span>{max}</span>
+      <div className="ptz-axis-scale" aria-hidden="true">
+        <span>{scaleMin}</span>
+        <span>{scaleMid}</span>
+        <span>{scaleMax}</span>
       </div>
     </div>
   );
@@ -224,11 +231,10 @@ type HidAxisSliderProps = {
 
 function HidAxisSlider({ label, axis, range, value, disabled, onDraft, onCommit }: HidAxisSliderProps) {
   return (
-    <div className={`ptz-axis ${value === null ? "is-missing" : ""}`}>
+    <div className={`ptz-axis ${value === null ? "is-missing" : ""}`} title={`${label} · HID gimbal axis · ±${range}°`}>
       <div className="ptz-axis-header">
         <div className="ptz-axis-copy">
           <span>{label}</span>
-          <small>{axis} · gimbal</small>
         </div>
         <strong>{formatDegrees(value)}</strong>
       </div>
@@ -239,6 +245,7 @@ function HidAxisSlider({ label, axis, range, value, disabled, onDraft, onCommit 
         max={range}
         step={1}
         value={value ?? 0}
+        style={rangeFill(value ?? 0, -range, range)}
         disabled={disabled || value === null}
         aria-label={`${label} position`}
         onChange={(event) => onDraft(axis, Number(event.target.value))}
@@ -250,10 +257,10 @@ function HidAxisSlider({ label, axis, range, value, disabled, onDraft, onCommit 
           }
         }}
       />
-      <div className="ptz-axis-scale">
+      <div className="ptz-axis-scale" aria-hidden="true">
         <span>{-range}°</span>
         <span>0°</span>
-        <span>{range}°</span>
+        <span>+{range}°</span>
       </div>
     </div>
   );
@@ -783,12 +790,36 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
   return (
     <section className={`control-panel ptz-panel accent-${group.accent}`}>
       <div className="panel-title-row">
-        <Icon size={18} />
+        <Icon size={16} />
         <h2>{group.title}</h2>
+        <div className="ptz-position" title="Live gimbal position">
+          <span className="ptz-position-label">Gimbal</span>
+          {hidWritable ? (
+            motorPosition ? (
+              <strong>
+                pan {formatDegrees(motorPosition.pan)} · tilt {formatDegrees(motorPosition.tilt)}
+              </strong>
+            ) : (
+              <span className="ptz-position-reading">reading…</span>
+            )
+          ) : (
+            <span className="ptz-position-reading">HID read-only</span>
+          )}
+        </div>
       </div>
       {trackingLocksPtz && (
-        <div className="ptz-mode-lock">
-          Tracking Mode owns PTZ. Switch Control Mode to Standard before moving, zooming, homing, or using presets.
+        <div className="ptz-mode-lock inline-notice" role="status">
+          <Lock size={14} aria-hidden="true" />
+          <span>Tracking is steering the camera. Manual moves, zoom and presets are paused.</span>
+          <button
+            type="button"
+            className="secondary-button notice-action"
+            disabled={pixyHid.pendingCommand !== null || pixyHid.status?.writable !== true}
+            onClick={() => void pixyHid.setTrackingMode("off")}
+          >
+            <Navigation size={13} aria-hidden="true" />
+            Switch to Standard
+          </button>
         </div>
       )}
       {pixyHid.error && (
@@ -823,7 +854,7 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
             title="Tilt up"
             aria-label="Tilt up"
           >
-            <ChevronsUp size={22} />
+            <ChevronsUp size={18} />
           </button>
           <button
             className="ptz-direction ptz-right"
@@ -837,7 +868,7 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
             title="Pan right"
             aria-label="Pan right"
           >
-            <ChevronsRight size={22} />
+            <ChevronsRight size={18} />
           </button>
           <button
             className="ptz-direction ptz-down"
@@ -851,7 +882,7 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
             title="Tilt down"
             aria-label="Tilt down"
           >
-            <ChevronsDown size={22} />
+            <ChevronsDown size={18} />
           </button>
           <button
             className="ptz-direction ptz-left"
@@ -865,7 +896,7 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
             title="Pan left"
             aria-label="Pan left"
           >
-            <ChevronsLeft size={22} />
+            <ChevronsLeft size={18} />
           </button>
           <button
             className="ptz-center"
@@ -892,7 +923,7 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
             title={hidPtzVectorReady ? "Point PTZ (drag to steer; Enter or Space recenters)" : "Center PTZ"}
             aria-label="Center PTZ"
           >
-            <Crosshair size={24} />
+            <Crosshair size={20} />
             {activeVectorPosition && (
               <span
                 className="ptz-vector-puck"
@@ -904,20 +935,6 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
         </div>
 
         <div className="ptz-axis-bank">
-          <div className="ptz-position" title="Live gimbal position">
-            <span className="ptz-position-label">Gimbal</span>
-            {hidWritable ? (
-              motorPosition ? (
-                <strong>
-                  pan {formatDegrees(motorPosition.pan)} · tilt {formatDegrees(motorPosition.tilt)}
-                </strong>
-              ) : (
-                <span className="ptz-position-reading">reading…</span>
-              )
-            ) : (
-              <span className="ptz-position-reading">HID read-only</span>
-            )}
-          </div>
           <div className="ptz-readouts">
             {hidPtzAbsoluteReady ? (
               <>
@@ -966,7 +983,7 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
         </div>
 
         <div className="ptz-presets">
-          <div className="ptz-presets-label">Presets</div>
+          <div className="ptz-presets-label section-label">Presets</div>
           <div className="ptz-preset-slots">
             {presets.map((preset, index) => (
               <button
@@ -994,7 +1011,7 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
               aria-label="Save PTZ preset"
               title="Save PTZ preset"
             >
-              <Save size={16} />
+              <Save size={14} />
               Save
             </button>
             <button
@@ -1007,11 +1024,11 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
                 (hidPresetLoadReady && presetTruthLoaded && !presets[selectedPreset])
               }
               onClick={() => void gotoPreset()}
-              aria-label="Goto PTZ preset"
-              title="Goto PTZ preset"
+              aria-label="Go to PTZ preset"
+              title="Go to PTZ preset"
             >
-              <Home size={16} />
-              Goto
+              <Navigation size={14} />
+              Go to
             </button>
             {hidPresetClearReady && (
               <button
@@ -1021,7 +1038,7 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
                 aria-label="Clear PTZ preset"
                 title="Clear PTZ preset"
               >
-                <Trash2 size={16} />
+                <Trash2 size={14} />
                 Clear
               </button>
             )}
@@ -1031,7 +1048,7 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
 
       <div className="ptz-footer">
         <div className="ptz-speed">
-          <span>Speed</span>
+          <span className="section-label">Speed</span>
           <div className="ptz-speed-buttons">
             {SPEEDS.map((value) => (
               <button
@@ -1054,7 +1071,7 @@ export function PtzControlPanel({ group, controls, pixyHid, queryHid }: Props) {
           aria-label="Home PTZ"
           title="Home PTZ"
         >
-          <Home size={16} />
+          <Home size={14} />
           Home
         </button>
       </div>

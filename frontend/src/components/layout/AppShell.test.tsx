@@ -289,28 +289,28 @@ describe("AppShell", () => {
       />
     );
 
-    expect(screen.getByRole("heading", { name: "Live Monitor" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Live monitor" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Smart Pixy" })).toBeInTheDocument();
     const viewSwitch = screen.getByRole("group", { name: "Workspace view" });
     expect(viewSwitch).toContainElement(screen.getByRole("button", { name: "Control Deck", pressed: true }));
-    expect(screen.queryByRole("heading", { name: "HID Diagnostics" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Future Deck" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Windows Capture Inbox" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Runtime Config" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "HID diagnostics" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "UVC extension" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Capture inbox" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Runtime config" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Diagnostics" }));
 
-    expect(screen.getByRole("heading", { name: "HID Diagnostics" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Future Deck" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Windows Capture Inbox" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Runtime Config" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Live Monitor" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "HID diagnostics" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "UVC extension" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Capture inbox" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Runtime config" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Live monitor" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Runtime Config" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Runtime config" })).toBeInTheDocument();
     expect(screen.getAllByText("Single address").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("heading", { name: "HID Diagnostics" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "HID diagnostics" })).not.toBeInTheDocument();
   });
 });

@@ -72,8 +72,8 @@ export function RuntimeSettingsPanel({ privacySafety }: Props) {
   return (
     <section className="runtime-panel">
       <div className="panel-title-row">
-        <ServerCog size={18} />
-        <h2>Runtime Config</h2>
+        <ServerCog size={16} />
+        <h2>Runtime config</h2>
       </div>
       <div className="runtime-mode">
         <strong>{settings?.server.url ?? "http://127.0.0.1:8000"}</strong>

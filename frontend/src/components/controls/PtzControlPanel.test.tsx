@@ -230,7 +230,7 @@ describe("PtzControlPanel", () => {
     const setValue = renderPanel();
 
     await user.click(screen.getByRole("button", { name: "Save PTZ preset" }));
-    await user.click(screen.getByRole("button", { name: "Goto PTZ preset" }));
+    await user.click(screen.getByRole("button", { name: "Go to PTZ preset" }));
 
     expect(setValue).toHaveBeenCalledWith("pan_absolute", 20);
     expect(setValue).toHaveBeenCalledWith("tilt_absolute", 30);
@@ -302,7 +302,7 @@ describe("PtzControlPanel", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Preset 3" }));
-    await user.click(screen.getByRole("button", { name: "Goto PTZ preset" }));
+    await user.click(screen.getByRole("button", { name: "Go to PTZ preset" }));
 
     expect(loadPtzPreset).toHaveBeenCalledWith(3);
     expect(setValue).not.toHaveBeenCalled();
@@ -370,12 +370,13 @@ describe("PtzControlPanel", () => {
       })
     );
 
-    expect(screen.getByText("Tracking Mode owns PTZ. Switch Control Mode to Standard before moving, zooming, homing, or using presets.")).toBeInTheDocument();
+    expect(screen.getByText("Tracking is steering the camera. Manual moves, zoom and presets are paused.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Switch to Standard" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Pan left" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Center PTZ" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Home PTZ" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save PTZ preset" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Goto PTZ preset" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Go to PTZ preset" })).toBeDisabled();
     expect(screen.getAllByRole("slider")[2]).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Pan left" }));
@@ -384,6 +385,30 @@ describe("PtzControlPanel", () => {
     expect(savePtzPreset).not.toHaveBeenCalled();
     expect(loadPtzPreset).not.toHaveBeenCalled();
     expect(setValue).not.toHaveBeenCalled();
+  });
+
+  it("offers a one-click switch back to Standard while Tracking owns PTZ", async () => {
+    const user = userEvent.setup();
+    const setTrackingMode = vi.fn().mockResolvedValue(undefined);
+    renderPanel(
+      vi.fn().mockResolvedValue(undefined),
+      pixyHid({
+        status: {
+          available: true,
+          path: "/dev/hidraw14",
+          readable: true,
+          writable: true,
+          reason: null,
+          known_controls: ["ptz_direction"]
+        },
+        trackingMode: "tracking",
+        setTrackingMode
+      })
+    );
+
+    await user.click(screen.getByRole("button", { name: "Switch to Standard" }));
+
+    expect(setTrackingMode).toHaveBeenCalledWith("off");
   });
 
   it("prefers the captured discrete HID jog command for arrows when both PTZ paths are available", async () => {
@@ -670,7 +695,7 @@ describe("PtzControlPanel", () => {
     expect(screen.getByRole("button", { name: "Preset 3" })).toHaveClass("is-filled");
 
     await userEvent.setup().click(screen.getByRole("button", { name: "Preset 2" }));
-    expect(screen.getByRole("button", { name: "Goto PTZ preset" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Go to PTZ preset" })).toBeDisabled();
     expect(loadPtzPreset).not.toHaveBeenCalled();
   });
 

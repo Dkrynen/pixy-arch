@@ -27,7 +27,7 @@ describe("CommandLogPanel", () => {
       />
     );
 
-    expect(screen.getByText("Command Log")).toBeInTheDocument();
+    expect(screen.getByText("Command log")).toBeInTheDocument();
     expect(screen.getByText("tracking:privacy")).toBeInTheDocument();
     expect(screen.getByText("writing brightness")).toBeInTheDocument();
     expect(screen.getByText("selected_area @ 64,32")).toBeInTheDocument();

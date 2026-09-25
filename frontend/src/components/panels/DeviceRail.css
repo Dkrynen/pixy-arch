@@ -1,46 +1,207 @@
-/* DeviceRail-local styles. Shared chrome lives in styles.css (P9). */
+/* Device bay: a compact source card. */
 
-.device-rec-badge {
+.device-rail .panel-title-row .device-refresh {
+  height: 28px;
   margin-left: auto;
-  padding: 2px 8px;
-  border: 1px solid var(--danger);
-  border-radius: 999px;
-  color: color-mix(in srgb, var(--danger) 45%, white);
-  background: var(--danger-soft);
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  animation: device-rec-pulse 1.6s ease-in-out infinite;
+  padding: 0 8px;
+  font-size: 12.5px;
 }
 
-@keyframes device-rec-pulse {
-  0%,
-  100% {
-    opacity: 1;
+@media (max-width: 720px), (pointer: coarse) {
+  .device-rail .panel-title-row .device-refresh {
+    height: 40px;
   }
-  50% {
-    opacity: 0.45;
-  }
+}
+
+.device-rec-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--danger-fill);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+.device-picker {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.device-picker-readout {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.device-glyph {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+.device-picker-readout > div {
+  min-width: 0;
+}
+
+.device-picker-readout strong,
+.device-picker-readout small {
+  display: block;
+}
+
+.device-picker-readout strong {
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-picker-readout small {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.field-label small {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.format-picker {
+  display: grid;
+  gap: 6px;
+  margin-bottom: var(--space-3);
+}
+
+.format-error {
+  color: var(--danger-text);
+  font-size: 12px;
 }
 
 .device-hint {
   display: block;
-  margin-top: 6px;
   color: var(--text-2);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
 .device-hint-error {
-  color: color-mix(in srgb, var(--danger) 45%, white);
+  color: var(--danger-text);
 }
 
-.secondary-button .spin {
-  animation: device-rail-spin 1s linear infinite;
+.device-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
 }
 
-@keyframes device-rail-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.capability-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  cursor: help;
+}
+
+.capability-summary svg {
+  color: var(--ok);
+}
+
+.capability-summary span {
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.capability-summary small {
+  grid-column: 2;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.capability-list {
+  display: grid;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.capability-list > .section-label {
+  margin-bottom: 4px;
+}
+
+.capability-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.capability-row > svg {
+  color: var(--text-3);
+}
+
+.capability-row strong {
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.capability-row em {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.capability-row.is-ready em {
+  color: var(--ok-text);
+}
+
+.capability-row.is-partial em {
+  color: var(--warn-text);
 }

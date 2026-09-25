@@ -1,4 +1,5 @@
 import { RadioTower } from "lucide-react";
+import type { ReactNode } from "react";
 
 import type { UseAudioResult } from "../../hooks/useAudio";
 import type { UseControlsResult } from "../../hooks/useControls";
@@ -6,6 +7,7 @@ import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import type { UsePrivacySafetyResult } from "../../hooks/usePrivacySafety";
 import type { UseVideoCaptureResult } from "../../hooks/useVideoCapture";
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
+import { countActiveControls } from "../../domains/controls/grouping";
 import { CommandLogPanel } from "../panels/CommandLogPanel";
 import { ExperimentalPanel } from "../panels/ExperimentalPanel";
 import { HidDiagnosticsPanel } from "../panels/HidDiagnosticsPanel";
@@ -13,6 +15,8 @@ import { PcapImportPanel } from "../panels/PcapImportPanel";
 
 type Props = {
   deviceName: string | null;
+  /** The device picker, shown in the side column. */
+  deviceBay?: ReactNode;
   controls: UseControlsResult;
   videoFormats: UseVideoFormatsResult;
   videoCapture: UseVideoCaptureResult;
@@ -23,6 +27,7 @@ type Props = {
 
 export function DiagnosticsDeck({
   deviceName,
+  deviceBay,
   controls,
   videoFormats,
   videoCapture,
@@ -31,14 +36,12 @@ export function DiagnosticsDeck({
   privacySafety
 }: Props) {
   return (
-    <div className="diagnostics-console">
-      <div className="diagnostics-intro">
-        <SignalPanel controls={controls} pixyHid={pixyHid} deviceName={deviceName} />
-      </div>
-      <div className="diagnostics-grid">
-        <HidDiagnosticsPanel />
-        <ExperimentalPanel deviceName={deviceName} />
-        <PcapImportPanel />
+    <div className="operator-deck diagnostics-console">
+      <div className="operator-main">
+        <div className="diagnostics-grid">
+          <HidDiagnosticsPanel />
+          <ExperimentalPanel deviceName={deviceName} />
+        </div>
         <CommandLogPanel
           controls={controls}
           videoFormats={videoFormats}
@@ -48,6 +51,11 @@ export function DiagnosticsDeck({
           privacySafety={privacySafety}
         />
       </div>
+      <aside className="operator-side">
+        <SignalPanel controls={controls} pixyHid={pixyHid} videoCapture={videoCapture} deviceName={deviceName} />
+        <PcapImportPanel />
+        {deviceBay}
+      </aside>
     </div>
   );
 }
@@ -55,38 +63,45 @@ export function DiagnosticsDeck({
 function SignalPanel({
   controls,
   pixyHid,
+  videoCapture,
   deviceName
 }: {
   controls: UseControlsResult;
   pixyHid: UsePixyHidResult;
+  videoCapture: UseVideoCaptureResult;
   deviceName: string | null;
 }) {
+  const hidState = pixyHid.status?.writable ? "Linked" : pixyHid.status?.available ? "Limited" : "Absent";
   return (
-    <div className="signal-panel">
+    <section className="signal-panel">
       <div className="panel-title-row">
-        <RadioTower size={18} />
+        <RadioTower size={16} />
         <h2>Signal</h2>
       </div>
-      <div className="telemetry-stack">
+      <dl className="telemetry-stack">
         <div>
-          <span>V4L2</span>
-          <strong>{controls.isLoading ? "Scanning" : "Ready"}</strong>
+          <dt>V4L2</dt>
+          <dd className={controls.isLoading ? "" : "is-good"}>{controls.isLoading ? "Scanning" : "Ready"}</dd>
         </div>
         <div>
-          <span>Controls</span>
-          <strong>{controls.controls.length}</strong>
+          <dt>Controls</dt>
+          <dd title={`${countActiveControls(controls.controls)} active`}>{controls.controls.length}</dd>
         </div>
         <div>
-          <span>HID</span>
-          <strong>
-            {pixyHid.status?.writable ? "Linked" : pixyHid.status?.available ? "Limited" : "Absent"}
-          </strong>
+          <dt>HID</dt>
+          <dd className={pixyHid.status?.writable ? "is-good" : "is-warn"} title={pixyHid.status?.path ?? undefined}>
+            {hidState}
+          </dd>
         </div>
         <div>
-          <span>Device</span>
-          <strong>{deviceName ?? "—"}</strong>
+          <dt>Stream</dt>
+          <dd className={videoCapture.previewEnabled ? "is-good" : ""}>{videoCapture.previewEnabled ? "Live" : "Idle"}</dd>
         </div>
-      </div>
-    </div>
+        <div className="telemetry-wide">
+          <dt>Device</dt>
+          <dd>{deviceName ? `/dev/${deviceName}` : "—"}</dd>
+        </div>
+      </dl>
+    </section>
   );
 }

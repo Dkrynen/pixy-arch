@@ -110,10 +110,10 @@ export function CommandLogPanel({ controls, videoFormats, videoCapture, pixyHid,
   return (
     <section className="command-log-panel">
       <div className="panel-title-row">
-        <TerminalSquare size={18} />
-        <h2>Command Log</h2>
+        <TerminalSquare size={16} />
+        <h2>Command log</h2>
         <button
-          className="command-log-clear"
+          className="command-log-clear icon-button ghost-button"
           onClick={() => {
             setFilter("all");
             clearCommandLog();

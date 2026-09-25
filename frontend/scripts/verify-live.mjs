@@ -104,8 +104,8 @@ try {
   // ---------- 1. Load ----------
   await page.goto(BASE, { waitUntil: "load" });
   await page.getByRole("heading", { name: "Pixy Arch" }).waitFor({ timeout: 10000 });
-  await page.getByRole("heading", { name: "Live Monitor" }).waitFor({ timeout: 10000 });
-  await page.getByRole("heading", { name: "PTZ Control" }).waitFor({ timeout: 15000 });
+  await page.getByRole("heading", { name: "Live monitor" }).waitFor({ timeout: 10000 });
+  await page.getByRole("heading", { name: "PTZ", exact: true }).waitFor({ timeout: 15000 });
   await page.getByRole("heading", { name: "Smart Pixy" }).waitFor({ timeout: 10000 });
   rec("1-load", consoleErrors.length === 0 && pageErrors.length === 0,
     `consoleErrors=${JSON.stringify(consoleErrors)} pageErrors=${JSON.stringify(pageErrors)} http>=400=${JSON.stringify(badResponses)}`);
@@ -150,7 +150,7 @@ try {
 
   // ---------- 4. Reload mid-stream ----------
   await page.reload({ waitUntil: "load" });
-  await page.getByRole("heading", { name: "Live Monitor" }).waitFor({ timeout: 10000 });
+  await page.getByRole("heading", { name: "Live monitor" }).waitFor({ timeout: 10000 });
   await page.getByRole("button", { name: "Show stream" }).click();
   await waitImg(9000);
   const st4 = await imgState();
@@ -186,7 +186,7 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll("details.smart-control")]
     .find((d) => d.querySelector("summary span")?.textContent.trim() === "Orientation")?.open === true);
   const mirrorVisible = await orientation.getByText("Mirror", { exact: true }).isVisible();
-  const autoRotVisible = await orientation.getByText("Auto Rotate").isVisible();
+  const autoRotVisible = await orientation.getByText("Auto rotate").isVisible();
   await oSummary.click();
   const collapsedAgain = await page.waitForFunction(() => [...document.querySelectorAll("details.smart-control")]
     .find((d) => d.querySelector("summary span")?.textContent.trim() === "Orientation")?.open === false).then(() => true).catch(() => false);
@@ -194,9 +194,9 @@ try {
   const kbOpen = await page.$$eval("details.smart-control", (ds) =>
     ds.find((d) => d.querySelector("summary span")?.textContent.trim() === "Orientation")?.open);
   const after = await openStates();
-  const othersCollapsed = after.every((d) => d.open === false || ["Tracking & Follow", "Orientation"].includes(d.label));
+  const othersCollapsed = after.every((d) => d.open === false || ["Tracking & follow", "Orientation"].includes(d.label));
   rec("6-disclosures",
-    before.find((d) => d.label === "Tracking & Follow")?.open === true &&
+    before.find((d) => d.label === "Tracking & follow")?.open === true &&
     before.filter((d) => d.open).length === 1 &&
     mirrorVisible && autoRotVisible && collapsedAgain && kbOpen === true && othersCollapsed,
     `before=${JSON.stringify(before)} mirror=${mirrorVisible} autoRotate=${autoRotVisible} recollapse=${collapsedAgain} kbEnter=${kbOpen} after=${JSON.stringify(after)}`);
@@ -204,12 +204,12 @@ try {
 
   // ---------- 7. View switching ----------
   await page.getByRole("button", { name: "Diagnostics" }).click();
-  await page.getByRole("heading", { name: "Future Deck" }).waitFor({ timeout: 8000 });
-  await page.getByRole("heading", { name: "HID Diagnostics" }).waitFor({ timeout: 8000 });
+  await page.getByRole("heading", { name: "UVC extension" }).waitFor({ timeout: 8000 });
+  await page.getByRole("heading", { name: "HID diagnostics" }).waitFor({ timeout: 8000 });
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByRole("heading", { name: "Settings" }).waitFor({ timeout: 8000 });
   await page.getByRole("button", { name: "Control Deck" }).click();
-  await page.getByRole("heading", { name: "Live Monitor" }).waitFor({ timeout: 8000 });
+  await page.getByRole("heading", { name: "Live monitor" }).waitFor({ timeout: 8000 });
   rec("7-views", consoleErrors.length === 0 && pageErrors.length === 0,
     `consoleErrors=${JSON.stringify(consoleErrors)} pageErrors=${JSON.stringify(pageErrors)}`);
 

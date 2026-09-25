@@ -46,7 +46,7 @@ This is the main Linux-side tool for correlating official app behavior.
 
 1. Plug in the PIXY.
 2. Start Pixy Arch.
-3. Open `Future Deck -> UVC Extension`.
+3. Open `Diagnostics -> UVC extension`.
 4. Click `Save`.
 5. Keep the saved JSON path with your test notes.
 
@@ -74,14 +74,14 @@ pcaps/32_uvc_tracking_standard_to_tracking.pcapng
 ```
 
 6. Move the camera back to Linux.
-7. In Pixy Arch, click `Save` in `Future Deck -> UVC Extension`.
+7. In Pixy Arch, click `Save` in `Diagnostics -> UVC extension`.
 8. Check `changed_selectors` in the UI and saved JSON.
 
 If a selector changed on Linux and the Windows pcap contains a matching UVC `SET_CUR`, we have a candidate mapping.
 
 ## Getting Captures From Windows Into Pixy Arch
 
-Pixy Arch includes a `Windows Capture Inbox` panel for `.pcap` and `.pcapng` files.
+Pixy Arch includes a `Capture inbox` (Diagnostics view) panel for `.pcap` and `.pcapng` files.
 
 The normal local upload flow is:
 
@@ -100,7 +100,7 @@ server:
 http://<linux-machine-ip>:8000
 ```
 
-4. Use `Windows Capture Inbox` to select the USBPcap file, add the exact action label, and upload it.
+4. Use `Capture inbox` (Diagnostics view) to select the USBPcap file, add the exact action label, and upload it.
 
 Uploaded captures are stored under:
 

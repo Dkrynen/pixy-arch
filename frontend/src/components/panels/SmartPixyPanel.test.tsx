@@ -145,7 +145,7 @@ describe("SmartPixyPanel", () => {
     expect(screen.getByRole("button", { name: "Privacy" })).toBeEnabled();
     expect(screen.queryByText("Speaker Tracking")).not.toBeInTheDocument();
     expect(screen.queryByText("Capture needed")).not.toBeInTheDocument();
-    expect(screen.getByText("Startup privacy on; the service parks the lens when it starts")).toBeInTheDocument();
+    expect(screen.getByText("Lens closes and mic mutes whenever Pixy Arch starts")).toBeInTheDocument();
   });
 
   it("shows the outcome of the last privacy command instead of assuming success", () => {
@@ -223,7 +223,7 @@ describe("SmartPixyPanel", () => {
       />
     );
 
-    expect(screen.getByText("Non-privacy raw 3 bits 0,1")).toBeInTheDocument();
+    expect(screen.getByTitle("Raw value 3 · bits 0,1")).toHaveTextContent("Non-privacy");
     expect(screen.getByRole("button", { name: "Tracking" })).toHaveClass("is-selected");
   });
 
@@ -251,11 +251,11 @@ describe("SmartPixyPanel", () => {
       />
     );
 
-    expect(screen.getByText("Tracking raw 1 bits 0")).toBeInTheDocument();
+    expect(screen.getByTitle("Raw value 1 · bits 0")).toHaveTextContent("Tracking");
     expect(screen.getByRole("button", { name: "Tracking" })).toHaveClass("is-selected");
-    expect(screen.getByText("Tracking mode is active. Focus target selection is handled in Focus Control: Center, Face, or Region.")).toBeInTheDocument();
+    expect(screen.getByText("Tracking is on. Choose the focus target (Center, Face or Region) in the Focus panel.")).toBeInTheDocument();
     // Target tracking lives in Advanced and stays collapsed by default.
-    expect(screen.queryByText("Tracking Target")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tracking target")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Half body" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Full body" })).not.toBeInTheDocument();
   });
@@ -283,10 +283,10 @@ describe("SmartPixyPanel", () => {
       />
     );
 
-    expect(screen.getByText("Standard raw 0")).toBeInTheDocument();
+    expect(screen.getByTitle("Raw value 0")).toHaveTextContent("Standard");
     expect(screen.getByRole("button", { name: "Standard" })).toHaveClass("is-selected");
-    expect(screen.getByText("Device reports Standard mode. Select Tracking for auto follow, or use Focus Control for Center, Face, or Region metering.")).toBeInTheDocument();
-    expect(screen.queryByText("Tracking Target")).not.toBeInTheDocument();
+    expect(screen.getByText("Standard mode. Select Tracking for auto follow, or use the Focus panel for Center, Face or Region metering.")).toBeInTheDocument();
+    expect(screen.queryByText("Tracking target")).not.toBeInTheDocument();
   });
 
   it("selects the proven tracking control mode", async () => {

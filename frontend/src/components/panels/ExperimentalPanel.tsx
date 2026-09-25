@@ -73,13 +73,13 @@ export function ExperimentalPanel({ deviceName }: Props) {
   return (
     <section className="experimental-panel">
       <div className="panel-title-row">
-        <FlaskConical size={18} />
-        <h2>Future Deck</h2>
+        <FlaskConical size={16} />
+        <h2>UVC extension</h2>
       </div>
       <div className="uvc-diagnostics-card">
         <div className="uvc-diagnostics-header">
           <div>
-            <strong>UVC Extension</strong>
+            <strong>Extension unit probe</strong>
             <span>{deviceName ? `${deviceName} unit 2 selectors 1-10` : "Select a capture device"}</span>
           </div>
           <em>Experimental · read only</em>
@@ -96,10 +96,10 @@ export function ExperimentalPanel({ deviceName }: Props) {
             <Save size={14} />
             <span>{pending === "save" ? "Saving" : "Save"}</span>
           </button>
-          <button className="icon-button" disabled={!snapshot || pending !== null} aria-label="Copy UVC snapshot" onClick={() => void copySnapshot()}>
+          <button className="icon-button" disabled={!snapshot || pending !== null} aria-label="Copy UVC snapshot" title="Copy snapshot JSON" onClick={() => void copySnapshot()}>
             <Clipboard size={15} />
           </button>
-          <button className="icon-button" disabled={!snapshot || pending !== null} aria-label="Download UVC snapshot" onClick={downloadSnapshot}>
+          <button className="icon-button" disabled={!snapshot || pending !== null} aria-label="Download UVC snapshot" title="Download snapshot JSON" onClick={downloadSnapshot}>
             <Download size={15} />
           </button>
         </div>

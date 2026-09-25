@@ -1,3 +1,4 @@
+import { controlDisplayLabel } from "../../../domains/controls/display";
 import type { V4L2Control } from "../../../types/api";
 import { ControlShell } from "./ControlShell";
 
@@ -15,7 +16,7 @@ export function MenuControl({ control, allControls, disabled, onSetValue }: Prop
     <ControlShell control={control} allControls={allControls}>
       <select
         className="menu-select"
-        aria-label={control.label}
+        aria-label={controlDisplayLabel(control)}
         value={control.value}
         disabled={disabled || isInactive}
         onChange={(event) => void onSetValue(Number(event.target.value))}

@@ -77,7 +77,7 @@ POST /api/pixy-hid/diagnostics/capture?save=true
 
 These endpoints are read-only and return decoded fields when the camera response is known. They also return raw value bytes, set-bit indexes, full request/response hex, and an ASCII preview so unresolved responses can be documented without guessing.
 
-The web UI exposes the same flow in the `HID Diagnostics` panel:
+The web UI exposes the same flow in the `HID diagnostics` panel (Diagnostics view):
 
 - `Capture` reads the current whitelisted queries and displays them in the page.
 - `Save` reads the same queries and writes a timestamped JSON snapshot under `diagnostics/hid/`.
@@ -258,7 +258,7 @@ Focused Linux test on 2026-06-11:
 | Experimental target Half | `02` | Target readback became Half-body `02`. |
 | Experimental target Full | `03` | Target readback returned Face `01` on two attempts. Full-body is therefore not confirmed on the current Linux HID path/firmware. |
 
-For user-facing controls, Pixy Arch maps the Windows Focus/Metering behavior to Focus Control: `Center`, `Face`, and `Region`. Region selection sends the confirmed selected-area focus command with X/Y coordinates and gives the preview a rectangular region overlay.
+For user-facing controls, Pixy Arch maps the Windows Focus/Metering behavior to the Focus panel: `Center`, `Face`, and `Region`. Region selection sends the confirmed selected-area focus command with X/Y coordinates and gives the preview a rectangular region overlay.
 
 ### Group `02`: Auto Privacy Delay
 
