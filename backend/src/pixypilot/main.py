@@ -1,26 +1,30 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pixypilot.api.routes import router
 from pixypilot.config import (
+    allowed_hosts,
     cors_origins,
     frontend_dist_path,
     start_in_privacy,
     virtualcam_autostart,
     virtualcam_on_demand,
 )
+from pixypilot.core.commands import CommandError
 from pixypilot.domains.audio.service import get_audio_service
 from pixypilot.domains.automation.service import get_automation_service
 from pixypilot.domains.pixy_hid.service import get_pixy_hid_service
 from pixypilot.domains.video.service import get_video_service
 from pixypilot.domains.virtualcam.models import VirtualCamStartRequest
 from pixypilot.domains.virtualcam.service import get_virtualcam_service
+from pixypilot.security import LocalRequestGuard
 
 _LOG = logging.getLogger("pixypilot.startup")
 
@@ -108,8 +112,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Added last so it runs first: hostile Host/Origin requests never reach CORS
+# handling or a route.
+app.add_middleware(
+    LocalRequestGuard,
+    allowed_hosts=allowed_hosts(),
+    allowed_origins=cors_origins(),
+)
 
 app.include_router(router, prefix="/api")
+
+
+@app.exception_handler(CommandError)
+async def command_error_handler(_request: Request, exc: CommandError) -> JSONResponse:
+    # A system tool (amixer, wpctl, pw-cli, ...) failed or is not installed.
+    # Report it instead of an opaque 500 so the UI can show what is missing.
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
 @app.get("/health")
@@ -117,22 +135,32 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-frontend_dist = frontend_dist_path()
-frontend_index = frontend_dist / "index.html"
-frontend_assets = frontend_dist / "assets"
+def frontend_fallback_response(frontend_index: Path, path: str) -> FileResponse:
+    # API misses and asset misses must not be answered with index.html:
+    # a JS import receiving HTML fails with a confusing MIME error.
+    if path.startswith("api/") or path.startswith("assets/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(frontend_index)
 
-if frontend_index.exists():
+
+def mount_frontend(target: FastAPI, frontend_dist: Path) -> bool:
+    frontend_index = frontend_dist / "index.html"
+    if not frontend_index.exists():
+        return False
+
+    frontend_assets = frontend_dist / "assets"
     if frontend_assets.exists():
-        app.mount("/assets", StaticFiles(directory=frontend_assets), name="assets")
+        target.mount("/assets", StaticFiles(directory=frontend_assets), name="assets")
 
-    @app.get("/")
+    @target.get("/")
     async def frontend_index_route() -> FileResponse:
         return FileResponse(frontend_index)
 
-    @app.get("/{path:path}", include_in_schema=False)
+    @target.get("/{path:path}", include_in_schema=False)
     async def frontend_fallback(path: str) -> FileResponse:
-        # API misses and asset misses must not be answered with index.html:
-        # a JS import receiving HTML fails with a confusing MIME error.
-        if path.startswith("api/") or path.startswith("assets/"):
-            raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(frontend_index)
+        return frontend_fallback_response(frontend_index, path)
+
+    return True
+
+
+mount_frontend(app, frontend_dist_path())

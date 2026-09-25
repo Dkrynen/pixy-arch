@@ -18,6 +18,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "host": DEFAULT_BACKEND_HOST,
         "port": DEFAULT_BACKEND_PORT,
         "reload": False,
+        # Extra hostnames browsers may use to reach the API. IP addresses,
+        # localhost, and this machine's hostname are always accepted; "*"
+        # disables the check (only behind a trusted reverse proxy).
+        "allowed_hosts": [],
     },
     "frontend": {
         "dist": "frontend/dist",
@@ -104,6 +108,10 @@ def backend_port(config_path: Path | None = None) -> int:
 
 def reload_enabled(config_path: Path | None = None) -> bool:
     return _bool_at(["server", "reload"], False, config_path)
+
+
+def allowed_hosts(config_path: Path | None = None) -> list[str]:
+    return _list_at(["server", "allowed_hosts"], config_path)
 
 
 def frontend_host(config_path: Path | None = None) -> str:
