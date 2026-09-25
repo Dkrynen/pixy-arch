@@ -14,6 +14,8 @@
 - Call automation watches the PIXY itself instead of `/dev/video0`, which is the built-in webcam on most laptops.
 - Missing system tools give a clear error instead of an internal server error.
 - Many smaller fixes: stale responses when switching devices, the mic gain slider, the mic meter running after the tab closes, and accessible names for controls.
+- The deck picks the physical PIXY by default (never the virtual camera) and remembers your choice.
+- Recording filenames now include milliseconds (`pixy-arch-<device>-YYYYmmdd-HHMMSS-mmm.mkv`), so quick successive recordings never collide.
 
 ### Changed
 - The virtual camera is now called "Pixy Arch Virtual". Existing installs keep working with the old "PixyPilot Virtual" name. Rerun `sudo tools/setup-virtualcam.sh` to switch, then pick the new camera in OBS or your meeting app.

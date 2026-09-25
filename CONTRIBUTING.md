@@ -47,7 +47,7 @@ npx vitest run
 npm run build
 ```
 
-`npm run test:smoke` drives the built UI in a headless browser against a running backend. `npm run verify:live` exercises the real camera end to end, so run it only with a PIXY attached. It restores privacy mode when it finishes.
+`npm run test:smoke` drives the built UI in a headless browser against a running backend. `npm run verify:live` exercises the real camera end to end, so run it only with a PIXY attached. It restores the camera mode it found when it finishes, and `--cleanup-recording` deletes its test recording. Set `PIXY_ARCH_URL` or pass a URL to target another port.
 
 ## Guidelines
 
