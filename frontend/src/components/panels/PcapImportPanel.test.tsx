@@ -19,7 +19,7 @@ function capture(overrides: Partial<PcapImportRecord> = {}): PcapImportRecord {
     id: "abc123",
     original_filename: "tracking.pcapng",
     stored_filename: "2026-tracking.pcapng",
-    file_path: "/FastDrive/EmmetPixy/pcaps/imports/2026-tracking.pcapng",
+    file_path: "/home/user/pixy-arch/pcaps/imports/2026-tracking.pcapng",
     size_bytes: 2048,
     sha256: "abcdef1234567890",
     uploaded_at: "2026-06-11T10:00:00+00:00",

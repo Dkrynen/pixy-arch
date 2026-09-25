@@ -139,6 +139,7 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
           <div className="segmented">
             <button
               className={pipeline === "transform" ? "is-selected" : ""}
+              aria-pressed={pipeline === "transform"}
               disabled={disabled || running}
               onClick={() => setPipeline("transform")}
             >
@@ -146,6 +147,7 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
             </button>
             <button
               className={pipeline === "whiteboard" ? "is-selected" : ""}
+              aria-pressed={pipeline === "whiteboard"}
               disabled={disabled || running}
               onClick={() => setPipeline("whiteboard")}
             >
@@ -160,6 +162,7 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
           </div>
           <select
             className="vcam-quality-select"
+            aria-label="Camera format"
             value={qualityIndex ?? defaultIndex}
             disabled={disabled || running || formats.length === 0}
             onChange={(event) => setQualityIndex(Number(event.target.value))}
@@ -202,6 +205,7 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
                   <button
                     key={option.value}
                     className={transform.rotate === option.value ? "is-selected" : ""}
+                    aria-pressed={transform.rotate === option.value}
                     disabled={disabled || running}
                     onClick={() => setTransform((t) => ({ ...t, rotate: option.value }))}
                   >
@@ -217,6 +221,7 @@ export function VirtualCamPanel({ virtualCam, videoFormats, privacySafety }: Pro
               </div>
               <input
                 type="range"
+                aria-label="Virtual camera zoom"
                 min={1}
                 max={4}
                 step={0.1}

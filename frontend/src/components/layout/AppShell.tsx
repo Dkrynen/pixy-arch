@@ -62,7 +62,7 @@ export function AppShell({
           </div>
         </div>
         <div className="topbar-actions">
-          <div className="view-switch" aria-label="Workspace view">
+          <div className="view-switch" role="group" aria-label="Workspace view">
             <button
               className={view === "control" ? "is-selected" : ""}
               onClick={() => setView("control")}

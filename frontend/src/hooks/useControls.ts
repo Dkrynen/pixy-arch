@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchControls, setControlValue } from "../lib/apiClient";
 import { groupControls } from "../domains/controls/grouping";
@@ -27,20 +27,35 @@ export function useControls(deviceName: string | null): UseControlsResult {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingControl, setPendingControl] = useState<string | null>(null);
+  // A response is only applied while its device is still selected and no
+  // newer load has started, so a slow reply for device A cannot land on B.
+  const deviceNameRef = useRef(deviceName);
+  deviceNameRef.current = deviceName;
+  const loadSeqRef = useRef(0);
 
   const refresh = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     if (!deviceName) {
       setControls([]);
+      setIsLoading(false);
       return;
     }
+    const isCurrent = () => seq === loadSeqRef.current && deviceNameRef.current === deviceName;
     setIsLoading(true);
     setError(null);
     try {
-      setControls(await fetchControls(deviceName));
+      const loaded = await fetchControls(deviceName);
+      if (isCurrent()) {
+        setControls(loaded);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load controls");
+      if (isCurrent()) {
+        setError(err instanceof Error ? err.message : "Unable to load controls");
+      }
     } finally {
-      setIsLoading(false);
+      if (seq === loadSeqRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [deviceName]);
 
@@ -69,8 +84,12 @@ export function useControls(deviceName: string | null): UseControlsResult {
             : control
         )
       );
+      const stillSelected = () => deviceNameRef.current === deviceName;
       try {
         const updated = await setControlValue(deviceName, controlName, value);
+        if (!stillSelected()) {
+          return;
+        }
         const wasInactive = targetControl?.flags.includes("inactive") ?? false;
         if (
           ACTIVE_STATE_PARENT_CONTROLS.has(controlName) ||
@@ -78,13 +97,20 @@ export function useControls(deviceName: string | null): UseControlsResult {
           wasInactive ||
           REFRESH_AFTER_WRITE_KINDS.has(targetControl?.kind ?? "")
         ) {
-          setControls(await fetchControls(deviceName));
+          const seq = ++loadSeqRef.current;
+          const loaded = await fetchControls(deviceName);
+          if (stillSelected() && seq === loadSeqRef.current) {
+            setControls(loaded);
+          }
         } else {
           setControls((current) =>
             current.map((control) => (control.name === controlName ? updated : control))
           );
         }
       } catch (err) {
+        if (!stillSelected()) {
+          return;
+        }
         // Roll back only the failed control so concurrent edits elsewhere survive.
         setControls((current) =>
           current.map((control) =>
@@ -114,7 +140,9 @@ export function useControls(deviceName: string | null): UseControlsResult {
         }
         await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Unable to apply preset");
+        if (deviceNameRef.current === deviceName) {
+          setError(err instanceof Error ? err.message : "Unable to apply preset");
+        }
         await refresh();
       } finally {
         setPendingControl(null);

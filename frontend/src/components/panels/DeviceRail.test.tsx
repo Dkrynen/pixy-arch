@@ -63,6 +63,28 @@ describe("DeviceRail", () => {
     await act(async () => undefined);
   });
 
+  it("marks the Pixy Arch virtual camera by name, including the legacy label", async () => {
+    render(
+      <DeviceRail
+        devices={devices({
+          list: [
+            pixyDevice,
+            { ...loopbackDevice, path: "/dev/video11", name: "Pixy Arch Virtual", driver: null, bus_info: null },
+            { ...loopbackDevice, path: "/dev/video12", name: "PixyPilot Virtual", driver: null, bus_info: null }
+          ],
+          selected: "video0"
+        })}
+        controls={controls()}
+        videoFormats={videoFormats()}
+        pixyHid={pixyHid()}
+      />
+    );
+
+    expect(screen.getByRole("option", { name: /VIDEO11/ })).toHaveTextContent("VIDEO11 - Virtual");
+    expect(screen.getByRole("option", { name: /VIDEO12/ })).toHaveTextContent("VIDEO12 - Virtual");
+    await act(async () => undefined);
+  });
+
   it("marks virtual loopback devices in the picker", async () => {
     render(
       <DeviceRail

@@ -19,6 +19,7 @@ export function BoolControl({ control, allControls, disabled, onSetValue }: Prop
         disabled={disabled || isInactive}
         onClick={() => void onSetValue(checked ? 0 : 1)}
         aria-pressed={checked}
+        aria-label={control.label}
       >
         <span />
       </button>

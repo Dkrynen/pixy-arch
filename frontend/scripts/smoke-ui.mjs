@@ -1,6 +1,16 @@
+// UI smoke test: node scripts/smoke-ui.mjs [appUrl]
+// Screenshots go to PIXY_ARCH_SCREENSHOT_DIR, or the OS temp dir by default.
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { chromium } from "playwright";
 
-const appUrl = process.argv[2] ?? "http://127.0.0.1:8000/";
+const appUrl = process.argv[2] ?? process.env.PIXY_ARCH_URL ?? "http://127.0.0.1:8000/";
+const screenshotDir = process.env.PIXY_ARCH_SCREENSHOT_DIR ?? tmpdir();
+mkdirSync(screenshotDir, { recursive: true });
+const desktopShot = join(screenshotDir, "pixy-arch-desktop.png");
+const mobileShot = join(screenshotDir, "pixy-arch-mobile.png");
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -32,7 +42,7 @@ await page.getByText("Orientation").click();
 await page.getByText("Auto Rotate").waitFor({ state: "visible" });
 // View switching remounts the deck and re-collapses sections, so capture now.
 const hasAutoRotate = await page.evaluate(() => document.body.innerText.includes("Auto Rotate"));
-await page.screenshot({ path: "/tmp/pixypilot-desktop.png", fullPage: false });
+await page.screenshot({ path: desktopShot, fullPage: false });
 
 // Diagnostics deck: exercised via the view switch, not visible by default.
 await page.getByRole("button", { name: /Diagnostics/i }).click();
@@ -43,7 +53,7 @@ await page.getByRole("heading", { name: "PTZ Control" }).waitFor({ state: "visib
 
 await page.setViewportSize({ width: 390, height: 900 });
 await page.waitForTimeout(250);
-await page.screenshot({ path: "/tmp/pixypilot-mobile.png", fullPage: false });
+await page.screenshot({ path: mobileShot, fullPage: false });
 
 const bodyText = await page.locator("body").innerText();
 const result = {
@@ -65,7 +75,7 @@ const result = {
   toggleCount: await page.locator(".toggle-switch").count(),
   selectCount: await page.locator("select").count(),
   logs,
-  screenshots: ["/tmp/pixypilot-desktop.png", "/tmp/pixypilot-mobile.png"]
+  screenshots: [desktopShot, mobileShot]
 };
 
 await browser.close();

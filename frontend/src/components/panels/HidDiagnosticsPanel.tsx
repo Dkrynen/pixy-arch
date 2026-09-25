@@ -107,7 +107,7 @@ export function HidDiagnosticsPanel() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `pixypilot-hid-${snapshot?.captured_at.replace(/[:+]/g, "") ?? "snapshot"}.json`;
+    link.download = hidSnapshotFileName(snapshot?.captured_at);
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -316,4 +316,9 @@ function leUint32(hex: string, index: number): number | null {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/** Download name for a HID diagnostics snapshot, e.g. `pixy-arch-hid-20260918T100000.json`. */
+export function hidSnapshotFileName(capturedAt: string | null | undefined): string {
+  return `pixy-arch-hid-${capturedAt?.replace(/[:+]/g, "") ?? "snapshot"}.json`;
 }

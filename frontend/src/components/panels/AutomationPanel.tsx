@@ -17,9 +17,11 @@ export function AutomationPanel({ automation }: Props) {
     setGraceDraft(null);
   }, [settings?.grace_seconds]);
 
+  // Send only the changed field so a stale copy of the other settings can
+  // never overwrite newer values on the backend.
   const patch = (update: Partial<AutomationSettings>) => {
     if (!settings) return;
-    void automation.applySettings({ ...settings, ...update });
+    void automation.applySettings(update);
   };
 
   const commitGrace = () => {
@@ -49,7 +51,7 @@ export function AutomationPanel({ automation }: Props) {
             {status?.camera_in_use && status.holders.length
               ? `Held by ${status.holders.join(", ")}`
               : status?.running
-                ? `Watching ${settings?.video_device ?? "camera"}`
+                ? `Watching ${watchedDeviceText(settings?.video_device)}`
                 : lastActionText(status?.last_action)}
           </small>
         </div>
@@ -82,7 +84,7 @@ export function AutomationPanel({ automation }: Props) {
         </div>
         <small className="privacy-help">
           Detects when an app (Meet, Zoom, OBS…) opens the camera and acts on call start/end. The
-          PixyPilot preview and PipeWire never count as a call.
+          Pixy Arch preview and PipeWire never count as a call.
         </small>
 
         <div className="smart-control">
@@ -92,6 +94,7 @@ export function AutomationPanel({ automation }: Props) {
           <div className="segmented">
             <button
               className={settings?.on_open === "tracking" ? "is-selected" : ""}
+              aria-pressed={settings?.on_open === "tracking"}
               disabled={disabled}
               onClick={() => patch({ on_open: "tracking" })}
             >
@@ -99,6 +102,7 @@ export function AutomationPanel({ automation }: Props) {
             </button>
             <button
               className={settings?.on_open === "none" ? "is-selected" : ""}
+              aria-pressed={settings?.on_open === "none"}
               disabled={disabled}
               onClick={() => patch({ on_open: "none" })}
             >
@@ -117,6 +121,7 @@ export function AutomationPanel({ automation }: Props) {
           <div className="segmented">
             <button
               className={settings?.on_close === "privacy" ? "is-selected" : ""}
+              aria-pressed={settings?.on_close === "privacy"}
               disabled={disabled}
               onClick={() => patch({ on_close: "privacy" })}
             >
@@ -124,6 +129,7 @@ export function AutomationPanel({ automation }: Props) {
             </button>
             <button
               className={settings?.on_close === "previous" ? "is-selected" : ""}
+              aria-pressed={settings?.on_close === "previous"}
               disabled={disabled}
               onClick={() => patch({ on_close: "previous" })}
             >
@@ -131,6 +137,7 @@ export function AutomationPanel({ automation }: Props) {
             </button>
             <button
               className={settings?.on_close === "none" ? "is-selected" : ""}
+              aria-pressed={settings?.on_close === "none"}
               disabled={disabled}
               onClick={() => patch({ on_close: "none" })}
             >
@@ -199,6 +206,13 @@ export function AutomationPanel({ automation }: Props) {
       )}
     </section>
   );
+}
+
+function watchedDeviceText(videoDevice: string | undefined): string {
+  if (!videoDevice || videoDevice === "auto") {
+    return "the PIXY camera (auto-detected)";
+  }
+  return videoDevice;
 }
 
 function lastActionText(lastAction: string | null | undefined): string {

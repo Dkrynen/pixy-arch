@@ -35,6 +35,7 @@ export function RangeControl({ control, allControls, disabled, onSetValue }: Pro
       <input
         className="range-input"
         type="range"
+        aria-label={control.label}
         min={min}
         max={max}
         step={step}

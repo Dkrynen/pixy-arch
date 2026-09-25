@@ -38,6 +38,63 @@ describe("useControls", () => {
     mockedSetControlValue.mockReset();
   });
 
+  it("ignores a late control list for a device that is no longer selected", async () => {
+    let resolveA!: (controls: V4L2Control[]) => void;
+    mockedFetchControls.mockImplementation((deviceName: string) =>
+      deviceName === "video0"
+        ? new Promise<V4L2Control[]>((resolve) => {
+            resolveA = resolve;
+          })
+        : Promise.resolve([control({ name: "zoom_absolute", label: "Zoom" })])
+    );
+
+    const { result, rerender } = renderHook(({ device }) => useControls(device), {
+      initialProps: { device: "video0" as string | null }
+    });
+    rerender({ device: "video2" });
+    await waitFor(() => expect(result.current.controls.map((item) => item.name)).toEqual(["zoom_absolute"]));
+
+    await act(async () => {
+      resolveA([control({ name: "brightness" })]);
+    });
+
+    expect(result.current.controls.map((item) => item.name)).toEqual(["zoom_absolute"]);
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it("does not apply a control write reply after the device changed", async () => {
+    mockedFetchControls.mockImplementation(async (deviceName: string) =>
+      deviceName === "video0" ? [control({ name: "brightness", value: 10 })] : [control({ name: "brightness", value: 99 })]
+    );
+    let finishWrite!: (value: V4L2Control) => void;
+    mockedSetControlValue.mockImplementation(
+      () =>
+        new Promise<V4L2Control>((resolve) => {
+          finishWrite = resolve;
+        })
+    );
+
+    const { result, rerender } = renderHook(({ device }) => useControls(device), {
+      initialProps: { device: "video0" as string | null }
+    });
+    await waitFor(() => expect(result.current.controls[0]?.value).toBe(10));
+
+    let write!: Promise<void>;
+    act(() => {
+      write = result.current.setValue("brightness", 20);
+    });
+    rerender({ device: "video2" });
+    await waitFor(() => expect(result.current.controls[0]?.value).toBe(99));
+
+    await act(async () => {
+      finishWrite(control({ name: "brightness", value: 20 }));
+      await write;
+    });
+
+    expect(result.current.controls[0]?.value).toBe(99);
+    expect(result.current.pendingControl).toBeNull();
+  });
+
   it("refreshes controls after changing an active-state parent control", async () => {
     const initialControls = [
       control({

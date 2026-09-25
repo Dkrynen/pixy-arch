@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchVideoFormats, setVideoFormat } from "../lib/apiClient";
 import type { VideoFormatOption } from "../types/api";
@@ -52,6 +52,11 @@ export function useVideoFormats(deviceName: string | null): UseVideoFormatsResul
   const [isLoading, setIsLoading] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Ignore replies for a device that is no longer selected (or superseded by
+  // a newer load) so a slow response for device A cannot land on device B.
+  const deviceNameRef = useRef(deviceName);
+  deviceNameRef.current = deviceName;
+  const loadSeqRef = useRef(0);
 
   const selectedFormat = useMemo(
     () => formats.find((format) => formatKey(format) === selectedKey) ?? null,
@@ -59,15 +64,21 @@ export function useVideoFormats(deviceName: string | null): UseVideoFormatsResul
   );
 
   const refresh = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     if (!deviceName) {
       setFormats([]);
       setSelectedKeyState("");
+      setIsLoading(false);
       return;
     }
+    const isCurrent = () => seq === loadSeqRef.current && deviceNameRef.current === deviceName;
     setIsLoading(true);
     setError(null);
     try {
       const loaded = await fetchVideoFormats(deviceName);
+      if (!isCurrent()) {
+        return;
+      }
       const defaultFormat = defaultPreviewFormat(loaded);
       setFormats(loaded);
       setSelectedKeyState((current) =>
@@ -78,9 +89,13 @@ export function useVideoFormats(deviceName: string | null): UseVideoFormatsResul
             : ""
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load video formats");
+      if (isCurrent()) {
+        setError(err instanceof Error ? err.message : "Unable to load video formats");
+      }
     } finally {
-      setIsLoading(false);
+      if (seq === loadSeqRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [deviceName]);
 
@@ -103,9 +118,15 @@ export function useVideoFormats(deviceName: string | null): UseVideoFormatsResul
       setError(null);
       try {
         const accepted = await setVideoFormat(deviceName, selected);
+        if (deviceNameRef.current !== deviceName) {
+          return;
+        }
         const acceptedMatch = formats.find((format) => formatsMatch(format, accepted));
         setSelectedKeyState(acceptedMatch ? formatKey(acceptedMatch) : key);
       } catch (err) {
+        if (deviceNameRef.current !== deviceName) {
+          return;
+        }
         setSelectedKeyState(previousKey);
         setError(err instanceof Error ? err.message : "Unable to set video format");
       } finally {

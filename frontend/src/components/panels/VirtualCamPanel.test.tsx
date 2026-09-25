@@ -113,6 +113,15 @@ describe("VirtualCamPanel", () => {
     expect(screen.getByRole("button", { name: "Start virtual camera" })).toBeEnabled();
   });
 
+  it("names its format and zoom inputs and exposes pressed segmented choices", () => {
+    render(<VirtualCamPanel virtualCam={virtualCam()} videoFormats={videoFormats()} privacySafety={privacySafety()} />);
+
+    expect(screen.getByRole("combobox", { name: "Camera format" })).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "Virtual camera zoom" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Transform" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Whiteboard" })).toHaveAttribute("aria-pressed", "false");
+  });
+
   it("disables start when no loopback device is available", () => {
     render(
       <VirtualCamPanel
@@ -242,7 +251,7 @@ describe("VirtualCamPanel", () => {
       settings: {
         virtualcam: {
           device: null,
-          label: "PixyPilot Virtual",
+          label: "Pixy Arch Virtual",
           autostart: true,
           on_demand: true,
           idle_grace_seconds: 8

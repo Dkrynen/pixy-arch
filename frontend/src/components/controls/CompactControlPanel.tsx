@@ -65,7 +65,7 @@ export function CompactControlPanel({ group, controls, pixyHid, controlPresets }
       <ControlPresetToolbar group={group} controls={controls} controlPresets={controlPresets} />
       {group.id === "image" && (
         <div className="image-preset-tools">
-          <div className="effect-preset-strip" aria-label="Image effects">
+          <div className="effect-preset-strip" role="group" aria-label="Image effects">
             {IMAGE_EFFECTS.map((effect) => (
               <button
                 key={effect.id}
@@ -83,6 +83,7 @@ export function CompactControlPanel({ group, controls, pixyHid, controlPresets }
                 <button
                   key={option.value}
                   className={pixyHid.mirrorMode === option.value ? "is-selected" : ""}
+                  aria-pressed={pixyHid.mirrorMode === option.value}
                   disabled={mirrorDisabled}
                   onClick={() => void pixyHid.setMirrorMode(option.value)}
                 >
@@ -101,6 +102,7 @@ export function CompactControlPanel({ group, controls, pixyHid, controlPresets }
               <button
                 key={option.value}
                 className={pixyHid.focusMeteringMode === option.value ? "is-selected" : ""}
+                aria-pressed={pixyHid.focusMeteringMode === option.value}
                 disabled={focusMeteringDisabled}
                 onClick={() => void pixyHid.setFocusMeteringMode(option.value)}
               >
@@ -210,11 +212,12 @@ function CompactInput({ control, disabled, draftValue, onDraftValue, onSetValue 
 
   if (control.kind === "bool") {
     return (
-      <div className="reference-segmented two-up">
+      <div className="reference-segmented two-up" role="group" aria-label={controlDisplayLabel(control)}>
         {boolOptionLabels(control).map((option) => (
           <button
             key={option.value}
             className={control.value === option.value ? "is-selected" : ""}
+            aria-pressed={control.value === option.value}
             disabled={disabled}
             onClick={() => void onSetValue(option.value)}
           >
@@ -227,11 +230,16 @@ function CompactInput({ control, disabled, draftValue, onDraftValue, onSetValue 
 
   if (control.kind === "menu" && control.menu.length > 0 && control.menu.length <= 4) {
     return (
-      <div className={`reference-segmented columns-${control.menu.length}`}>
+      <div
+        className={`reference-segmented columns-${control.menu.length}`}
+        role="group"
+        aria-label={controlDisplayLabel(control)}
+      >
         {control.menu.map((option) => (
           <button
             key={option.value}
             className={control.value === option.value ? "is-selected" : ""}
+            aria-pressed={control.value === option.value}
             disabled={disabled}
             onClick={() => void onSetValue(option.value)}
           >
@@ -246,6 +254,7 @@ function CompactInput({ control, disabled, draftValue, onDraftValue, onSetValue 
     return (
       <select
         className="menu-select"
+        aria-label={controlDisplayLabel(control)}
         value={control.value}
         disabled={disabled}
         onChange={(event) => void onSetValue(Number(event.target.value))}
@@ -281,6 +290,7 @@ function CompactRangeInput({ control, disabled, draftValue, onDraftValue, onSetV
     <input
       className="range-input"
       type="range"
+      aria-label={controlDisplayLabel(control)}
       min={control.min ?? 0}
       max={control.max ?? 100}
       step={control.step && control.step > 0 ? control.step : 1}

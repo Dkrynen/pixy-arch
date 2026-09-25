@@ -3,7 +3,7 @@ import { Aperture, Camera, Cpu, Crosshair, Focus, RotateCw, SlidersHorizontal, S
 
 import { fetchVideoRecordingStatus } from "../../lib/apiClient";
 import type { UseControlsResult } from "../../hooks/useControls";
-import type { UseDevicesResult } from "../../hooks/useDevices";
+import { isVirtualCameraDevice, type UseDevicesResult } from "../../hooks/useDevices";
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import { formatKey, type UseVideoFormatsResult } from "../../hooks/useVideoFormats";
 import type { Device, VideoRecordingStatus } from "../../types/api";
@@ -19,10 +19,6 @@ function shortDeviceName(name: string): string {
   return head || name;
 }
 
-function isVirtualDevice(device: Device): boolean {
-  const haystack = `${device.driver ?? ""} ${device.bus_info ?? ""} ${device.name}`.toLowerCase();
-  return haystack.includes("v4l2loopback") || haystack.includes("loopback");
-}
 
 type Props = {
   devices: UseDevicesResult;
@@ -154,7 +150,7 @@ export function DeviceRail({ devices, controls, videoFormats, pixyHid }: Props) 
           {devices.devices.length === 0 && <option value="">No devices</option>}
           {devices.devices.map((device) => {
             const deviceName = deviceNameFromPath(device.path);
-            const virtual = isVirtualDevice(device);
+            const virtual = isVirtualCameraDevice(device);
             return (
               <option key={device.path} value={deviceName}>
                 {deviceName.toUpperCase()} - {virtual ? "Virtual" : shortDeviceName(device.name)}

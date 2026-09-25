@@ -137,12 +137,14 @@ export function PcapImportPanel() {
         </label>
         <input
           className="pcap-text-input"
+          aria-label="Action changed"
           value={action}
           onChange={(event) => setAction(event.target.value)}
           placeholder="Action changed"
         />
         <textarea
           className="pcap-text-input"
+          aria-label="Capture notes"
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
           placeholder="Notes"

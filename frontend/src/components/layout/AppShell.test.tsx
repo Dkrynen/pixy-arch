@@ -236,7 +236,7 @@ const settings: AppSettings = {
   frontend: { dist_path: "frontend/dist", dev_server_host: "127.0.0.1", dev_server_port: 5173, single_port: true },
   storage: { presets_path: "config/presets.yaml", recordings_dir: "recordings" },
   hid: { path: null, report_gap_ms: 25 },
-  virtualcam: { device: null, label: "PixyPilot Virtual", autostart: true, on_demand: true, idle_grace_seconds: 8 },
+  virtualcam: { device: null, label: "Pixy Arch Virtual", autostart: true, on_demand: true, idle_grace_seconds: 8 },
   config: { path: "config/pixypilot.yaml" }
 };
 
@@ -291,6 +291,8 @@ describe("AppShell", () => {
 
     expect(screen.getByRole("heading", { name: "Live Monitor" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Smart Pixy" })).toBeInTheDocument();
+    const viewSwitch = screen.getByRole("group", { name: "Workspace view" });
+    expect(viewSwitch).toContainElement(screen.getByRole("button", { name: "Control Deck", pressed: true }));
     expect(screen.queryByRole("heading", { name: "HID Diagnostics" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Future Deck" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Windows Capture Inbox" })).not.toBeInTheDocument();

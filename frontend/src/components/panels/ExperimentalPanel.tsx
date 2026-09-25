@@ -65,7 +65,7 @@ export function ExperimentalPanel({ deviceName }: Props) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `pixypilot-uvc-${deviceName ?? "device"}-${snapshot?.captured_at.replace(/[:+]/g, "") ?? "snapshot"}.json`;
+    link.download = uvcSnapshotFileName(deviceName, snapshot?.captured_at);
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -166,4 +166,9 @@ function UvcSelectorRow({ selector }: { selector: UvcExtensionSelectorProbe }) {
 
 function uvcValueHex(value: UvcExtensionSelectorProbe["current"]): string {
   return value?.ok ? value.hex_value ?? "--" : "--";
+}
+
+/** Download name for a UVC extension snapshot, e.g. `pixy-arch-uvc-video0-20260918T100000.json`. */
+export function uvcSnapshotFileName(deviceName: string | null | undefined, capturedAt: string | null | undefined): string {
+  return `pixy-arch-uvc-${deviceName ?? "device"}-${capturedAt?.replace(/[:+]/g, "") ?? "snapshot"}.json`;
 }

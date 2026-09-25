@@ -15,6 +15,7 @@ export function MenuControl({ control, allControls, disabled, onSetValue }: Prop
     <ControlShell control={control} allControls={allControls}>
       <select
         className="menu-select"
+        aria-label={control.label}
         value={control.value}
         disabled={disabled || isInactive}
         onChange={(event) => void onSetValue(Number(event.target.value))}
