@@ -1,0 +1,50 @@
+# Pixy Arch configuration.
+#
+# tools/run-pixypilot.sh copies this file to config/pixypilot.yaml on first
+# run. Edit config/pixypilot.yaml (it is yours and is not tracked by git);
+# the Settings view in the app writes to it too. Restart the backend after
+# changing server, storage, or hid values. Full reference: docs/CONFIGURATION.md
+
+safety:
+  # Close the lens (privacy mode) and mute the mic when the backend starts.
+  start_in_privacy: true
+
+server:
+  # 127.0.0.1 keeps the deck on this computer. The API has no login: read
+  # the LAN warning in docs/CONFIGURATION.md before using 0.0.0.0.
+  host: 127.0.0.1
+  port: 8000
+  reload: false
+  # Hostnames (besides IP addresses, localhost, and this machine's name)
+  # that browsers may use to reach the deck, e.g. [pixy.lan].
+  allowed_hosts: []
+
+frontend:
+  dist: frontend/dist
+  dev_server:
+    host: 127.0.0.1
+    port: 5173
+
+cors:
+  origins: []
+
+storage:
+  presets: config/presets.yaml
+  recordings: recordings
+
+hid:
+  # null = auto-detect the camera's /dev/hidrawN node.
+  path: null
+  report_gap_ms: 25
+
+virtualcam:
+  autostart: true
+  on_demand: true
+  idle_grace_seconds: 8
+
+automation:
+  enabled: true
+  # auto = watch the EMEET PIXY capture node; or a path like /dev/video2.
+  video_device: auto
+  on_open: tracking
+  on_close: privacy

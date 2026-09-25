@@ -17,13 +17,23 @@ def build_app(**guard_options) -> FastAPI:
     async def change_thing() -> dict[str, bool]:
         return {"ok": True}
 
+    @app.get("/settings")
+    async def ui_route() -> dict[str, bool]:
+        return {"ok": True}
+
     return app
 
 
-async def send(app: FastAPI, method: str, host: str, headers: dict[str, str] | None = None):
+async def send(
+    app: FastAPI,
+    method: str,
+    host: str,
+    headers: dict[str, str] | None = None,
+    path: str = "/api/thing",
+):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url=f"http://{host}") as client:
-        return await client.request(method, "/api/thing", headers=headers or {})
+        return await client.request(method, path, headers=headers or {})
 
 
 @pytest.mark.parametrize(
@@ -135,8 +145,22 @@ async def test_same_site_other_port_embed_is_rejected() -> None:
     assert response.status_code == 403
 
 
-async def test_cross_site_navigation_is_allowed() -> None:
+async def test_cross_site_navigation_to_ui_is_allowed() -> None:
     # Following a link or bookmark to the deck from another site still works.
+    response = await send(
+        build_app(),
+        "GET",
+        "127.0.0.1:8000",
+        {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate"},
+        path="/settings",
+    )
+
+    assert response.status_code == 200
+
+
+async def test_cross_site_navigation_to_api_is_rejected() -> None:
+    # A hostile link or popup to e.g. /api/devices/video0/stream would switch
+    # the camera on.
     response = await send(
         build_app(),
         "GET",
@@ -144,7 +168,7 @@ async def test_cross_site_navigation_is_allowed() -> None:
         {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate"},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 403
 
 
 async def test_configured_cors_origin_is_trusted() -> None:

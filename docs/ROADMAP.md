@@ -1,20 +1,6 @@
-# PixyPilot Roadmap
+# Pixy Arch Roadmap
 
 This file tracks useful product ideas that are not required for the core camera control path.
-
-## In Progress / First Batch
-
-- Privacy-first startup:
-  - Start in camera privacy mode when safety settings allow it.
-  - Mute the microphone when entering privacy.
-  - Show visible startup privacy state in the UI.
-- Click-to-focus:
-  - Click the live preview to send the decoded selected-area focus metering command.
-  - Use the captured `0..127` coordinate range.
-- Command log:
-  - Show HID, V4L2, stream, focus, audio, recording, and safety status in a compact UI panel.
-- Linux tray app:
-  - Optional tray script for privacy, mute, Auto Follow, and PTZ preset load.
 
 ## Next High-Value Features
 
@@ -65,7 +51,7 @@ These are valid scalability improvements, but they should wait until the PIXY co
   - Use discovered capabilities to drive UI visibility instead of hard-coded known control lists.
   - Suggested timing: before provider abstraction, because providers should expose the same capability contract.
 - Camera provider abstraction:
-  - Keep PixyPilot PIXY-first while behavior is still being decoded.
+  - Keep Pixy Arch PIXY-first while behavior is still being decoded.
   - Later introduce a provider boundary:
 
     ```text
@@ -80,8 +66,7 @@ These are valid scalability improvements, but they should wait until the PIXY co
 
 ## Packaging And Distribution
 
-- Add systemd user service examples for the backend.
-- Add `.desktop` launcher for the web UI.
+- Distro packages (AUR, .deb) so users don't need a git checkout.
 - Package the tray app for common Linux desktops.
 - Prepare Home Assistant HACS installation docs.
 - Add a small public demo GIF or short video in the README.

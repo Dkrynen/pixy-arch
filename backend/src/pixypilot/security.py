@@ -10,8 +10,9 @@ not other *websites* open in the user's browser:
   ``localhost``, this machine's name, and configured names are accepted.
 - Cross-site requests (CSRF, ``<img src=".../stream">``): browsers label them
   with ``Sec-Fetch-Site`` and ``Origin``. They are refused unless the origin
-  is this server or an allowed CORS origin. Top-level navigation (a bookmark
-  or a dashboard link to the deck) still works.
+  is this server or an allowed CORS origin. Top-level navigation to the UI (a
+  bookmark or a dashboard link to the deck) still works; navigation straight
+  to an ``/api`` URL does not, since some GETs switch the camera on.
 
 Non-browser clients (curl, Home Assistant, scripts) send neither
 ``Sec-Fetch-Site`` nor ``Origin`` and are unaffected.
@@ -89,7 +90,7 @@ class LocalRequestGuard:
             await self.app(scope, receive, send)
             return
 
-        rejection = self.rejection(scope["method"], Headers(scope=scope))
+        rejection = self.rejection(scope["method"], Headers(scope=scope), scope["path"])
         if rejection is None:
             await self.app(scope, receive, send)
             return
@@ -98,7 +99,7 @@ class LocalRequestGuard:
         response = JSONResponse({"detail": detail}, status_code=status_code)
         await response(scope, receive, send)
 
-    def rejection(self, method: str, headers: Headers) -> tuple[int, str] | None:
+    def rejection(self, method: str, headers: Headers, path: str = "/") -> tuple[int, str] | None:
         host = headers.get("host", "")
         if not self.host_allowed(host):
             return (
@@ -111,8 +112,12 @@ class LocalRequestGuard:
         trusted_origin = origin is not None and self.origin_allowed(origin, host)
 
         fetch_site = headers.get("sec-fetch-site")
-        is_navigation = method in {"GET", "HEAD"} and headers.get("sec-fetch-mode") == "navigate"
-        if fetch_site in UNTRUSTED_FETCH_SITES and not trusted_origin and not is_navigation:
+        is_ui_navigation = (
+            method in {"GET", "HEAD"}
+            and headers.get("sec-fetch-mode") == "navigate"
+            and not (path == "/api" or path.startswith("/api/"))
+        )
+        if fetch_site in UNTRUSTED_FETCH_SITES and not trusted_origin and not is_ui_navigation:
             return 403, "Cross-site request refused."
 
         if method not in SAFE_METHODS and origin is not None and not trusted_origin:

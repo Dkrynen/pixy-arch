@@ -1,0 +1,51 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distro and kernel
+      placeholder: "Ubuntu 24.04, kernel 6.8.0-45-generic"
+    validations:
+      required: true
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: How do you run Pixy Arch?
+      options:
+        - tools/run-pixypilot.sh
+        - systemd user service
+        - desktop launcher
+        - developer mode
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Pixy Arch commit
+      description: Output of `git rev-parse --short HEAD`.
+  - type: input
+    id: firmware
+    attributes:
+      label: Camera firmware version
+      description: Shown in the Diagnostics view, if the bug involves camera behavior.
+  - type: textarea
+    id: status
+    attributes:
+      label: Status output
+      description: Relevant output of /api/pixy-hid/status, /api/virtualcam/status, or /api/audio/status.
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Backend logs
+      description: "`journalctl --user -u pixypilot.service -n 200` or the terminal output of tools/run-pixypilot.sh."
+      render: text

@@ -1,71 +1,99 @@
-# PixyPilot Configuration
+# Configuration
 
-PixyPilot uses `config/pixypilot.yaml` for normal user configuration.
+Pixy Arch reads `config/pixypilot.yaml`. `tools/run-pixypilot.sh` creates it from [`config/pixypilot.example.yaml`](../config/pixypilot.example.yaml) on first run. The file is yours: git does not track it, and the app's Settings view saves changes into it.
 
-## Default Config
+Any key you leave out uses the default shown below. Relative paths are resolved from the repository root. Restart the backend after changing `server`, `storage`, `hid`, or `frontend` values:
+
+```bash
+systemctl --user restart pixypilot.service   # if installed as a service
+# otherwise stop tools/run-pixypilot.sh (Ctrl+C) and start it again
+```
+
+## Reference
 
 ```yaml
 safety:
-  start_in_privacy: true
+  start_in_privacy: true      # cover the lens and mute the mic at startup
 
 server:
-  host: 127.0.0.1
+  host: 127.0.0.1             # see "Network access" before changing this
   port: 8000
-  reload: false
+  reload: false               # auto-reload on code changes (development)
+  allowed_hosts: []           # extra hostnames browsers may use, e.g. [pixy.lan]
 
 frontend:
-  dist: frontend/dist
-  dev_server:
+  dist: frontend/dist         # built UI served by the backend (config file only)
+  dev_server:                 # Vite dev server, used for CORS in development
     host: 127.0.0.1
     port: 5173
 
 cors:
-  origins: []
+  origins: []                 # extra browser origins allowed to call the API
 
 storage:
-  presets: config/presets.yaml
-  recordings: recordings
+  presets: config/presets.yaml   # image-control presets (config file only)
+  recordings: recordings         # where recordings are saved
 
 hid:
-  path:
-  report_gap_ms: 25
+  path: null                  # null = auto-detect; or a fixed /dev/hidrawN
+  report_gap_ms: 25           # pause between HID reports
 
 virtualcam:
-  device:
-  label: PixyPilot Virtual
+  device: null                # null = auto-detect the v4l2loopback sink
+  label: Pixy Arch Virtual    # sink name to look for (also accepts "PixyPilot Virtual")
+  autostart: true             # manage the virtual camera from startup
+  on_demand: true             # stream the real camera only while an app reads the sink
+  idle_grace_seconds: 8       # wait this long after the last reader before going idle
 
 automation:
   enabled: true
-  video_device: /dev/video0
-  on_open: tracking
-  on_close: privacy
-  grace_seconds: 8
-  poll_seconds: 1
-  exclude_processes: [wireplumber]
+  video_device: auto          # auto = the EMEET PIXY capture node; or e.g. /dev/video2
+  on_open: tracking           # tracking | none
+  on_close: privacy           # privacy | previous | none
+  unmute_mic: true            # unmute while an app uses the camera
+  grace_seconds: 8            # wait after the last app closes the camera
+  poll_seconds: 1             # how often to check which apps hold the camera
+  exclude_processes: [pipewire, wireplumber]   # holders that don't count as a call
 
 firmware:
   manifest_url: https://www.emeet.ai/device_software/EMEET_STUDIO/pixy/device_upgrade_pixy.json
 ```
 
-## Normal Mode
+`frontend.dist` and `storage.presets` can only be changed in the file, not through the app, because the app writes files to those locations.
 
-Run:
+## Common changes
 
-```bash
-./tools/run-pixypilot.sh
+Save recordings in your Videos folder:
+
+```yaml
+storage:
+  recordings: /home/YOUR_USER/Videos/Pixy Arch
 ```
 
-Open the address configured under `server.host` and `server.port`. The default is:
+Turn off call automation:
 
-```text
-http://127.0.0.1:8000
+```yaml
+automation:
+  enabled: false
 ```
 
-In normal mode, this one address serves both the API and the React UI.
+Keep the lens open at startup:
 
-## Common Changes
+```yaml
+safety:
+  start_in_privacy: false
+```
 
-Expose PixyPilot on the local network:
+Pin the HID node for diagnostics (normally auto-detected):
+
+```yaml
+hid:
+  path: /dev/hidrawN
+```
+
+## Network access
+
+By default the deck listens on `127.0.0.1`, so only this computer can reach it. To reach it from another device on your network, for example to upload packet captures from a Windows machine:
 
 ```yaml
 server:
@@ -73,22 +101,12 @@ server:
   port: 8000
 ```
 
-Store recordings somewhere else:
+Then open `http://<this-computer's-IP>:8000` on the other device.
 
-```yaml
-storage:
-  recordings: /home/YOUR_USER/Videos/PixyPilot
-```
+> **Warning:** the API has no authentication. While it listens on `0.0.0.0`, anyone on your network can view the live camera, record, move the camera, unmute the microphone, and change settings. Only do this on a network you trust, block the port in your firewall for untrusted networks, and switch back to `127.0.0.1` when you're done.
 
-Use a fixed HID path for diagnostics:
+Browsers must reach the deck through an IP address, `localhost`, or this computer's hostname (including `<hostname>.local`). Any other name, such as a reverse-proxy domain, has to be listed in `server.allowed_hosts`. This protects against DNS rebinding attacks. `["*"]` turns the check off; only use it behind a reverse proxy that enforces its own access control.
 
-```yaml
-hid:
-  path: /dev/hidraw14
-```
+## Developer mode
 
-Host, port, storage, and HID timing changes require restarting PixyPilot.
-
-## Developer Mode
-
-Developer mode is only for editing PixyPilot itself. It runs FastAPI on `127.0.0.1:8000` and Vite on `127.0.0.1:5173` for hot reload. Normal users should use `./tools/run-pixypilot.sh` instead.
+Developer mode is only for working on Pixy Arch itself: the backend runs on `127.0.0.1:8000` and Vite serves the UI with hot reload on `127.0.0.1:5173`. See [CONTRIBUTING.md](../CONTRIBUTING.md).

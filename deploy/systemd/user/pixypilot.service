@@ -1,16 +1,14 @@
-# Install (per-user):
-#   install -Dm644 deploy/systemd/user/pixypilot.service ~/.config/systemd/user/pixypilot.service
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now pixypilot.service
-# ExecStart assumes the repo stays at the path below; update it if the
-# checkout moves.
+# Pixy Arch backend as a systemd user service.
+# Install with tools/install-service.sh, which fills in @ROOT@ with the path
+# of your checkout. Re-run it if you move the checkout.
 [Unit]
-Description=PixyPilot - EMEET PIXY control backend
-After=default.target
+Description=Pixy Arch - EMEET PIXY control deck backend
+After=default.target pipewire.service wireplumber.service
 
 [Service]
 Type=simple
-ExecStart=%h/AI-Workspace/research/emeet-pixy/PixyPilot/backend/.venv/bin/pixypilot-api
+WorkingDirectory=@ROOT@
+ExecStart="@ROOT@/backend/.venv/bin/pixypilot-api"
 Restart=on-failure
 RestartSec=3
 
