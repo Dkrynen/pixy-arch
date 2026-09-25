@@ -104,7 +104,7 @@ class LocalRequestGuard:
         if not self.host_allowed(host):
             return (
                 400,
-                f"Host '{host}' is not allowed. If you reach PixyPilot through this "
+                f"Host '{host}' is not allowed. If you reach Pixy Arch through this "
                 "name, add it to server.allowed_hosts in config/pixypilot.yaml.",
             )
 

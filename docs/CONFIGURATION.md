@@ -2,7 +2,7 @@
 
 Pixy Arch reads `config/pixypilot.yaml`. `tools/run-pixypilot.sh` creates it from [`config/pixypilot.example.yaml`](../config/pixypilot.example.yaml) on first run. The file is yours: git does not track it, and the app's Settings view saves changes into it.
 
-Any key you leave out uses the default shown below. Relative paths are resolved from the repository root. Restart the backend after changing `server`, `storage`, `hid`, or `frontend` values:
+Any key you leave out uses the default shown below; an invalid automation value falls back to its default with a warning in the log. Relative paths are resolved from the repository root. Restart the backend after changing `server`, `storage`, `hid`, or `frontend` values:
 
 ```bash
 systemctl --user restart pixypilot.service   # if installed as a service
@@ -43,7 +43,7 @@ virtualcam:
   label: Pixy Arch Virtual    # sink name to look for (also accepts "PixyPilot Virtual")
   autostart: true             # manage the virtual camera from startup
   on_demand: true             # stream the real camera only while an app reads the sink
-  idle_grace_seconds: 8       # wait this long after the last reader before going idle
+  idle_grace_seconds: 8       # wait this long after the last reader before going idle (0-600)
 
 automation:
   enabled: true
@@ -52,7 +52,7 @@ automation:
   on_close: privacy           # privacy | previous | none
   unmute_mic: true            # unmute while an app uses the camera
   grace_seconds: 8            # wait after the last app closes the camera
-  poll_seconds: 1             # how often to check which apps hold the camera
+  poll_seconds: 1             # how often to check which apps hold the camera (0.5-60)
   exclude_processes: [pipewire, wireplumber]   # holders that don't count as a call
 
 firmware:

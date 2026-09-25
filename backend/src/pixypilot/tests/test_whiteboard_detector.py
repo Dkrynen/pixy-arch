@@ -38,7 +38,8 @@ def test_warp_to_quad_outputs_requested_size() -> None:
 def test_quads_close_tolerates_jitter() -> None:
     a = np.array([[0, 0], [100, 0], [100, 100], [0, 100]], dtype=np.float32)
     b = a + 5
-    c = a.copy(); c[0] += 100
+    c = a.copy()
+    c[0] += 100
     assert quads_close(a, b)
     assert not quads_close(a, c)
     assert not quads_close(a, None)

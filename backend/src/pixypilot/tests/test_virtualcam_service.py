@@ -113,6 +113,8 @@ def _patch_device_lookup(monkeypatch, tmp_path) -> tuple[Path, Path]:
     monkeypatch.setattr(vcam_module, "_find_loopback_device", lambda: sink)
     monkeypatch.setattr(vcam_module, "_find_source_device", lambda: source)
     monkeypatch.setattr(vcam_module, "_scan_sink_holders", lambda *_args, **_kwargs: (0, None))
+    # Standby frames go to the runtime dir: keep them inside the test's tmp.
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     monkeypatch.setattr(vcam_module.asyncio, "to_thread", immediate_to_thread)
     monkeypatch.setattr(vcam_module.asyncio, "sleep", no_sleep)
     # The demand-watch loop sleeps via the patched asyncio.sleep, which would
@@ -829,8 +831,6 @@ async def test_standby_frame_lives_in_private_runtime_dir_and_is_built_off_loop(
     monkeypatch, tmp_path
 ) -> None:
     _patch_device_lookup(monkeypatch, tmp_path)
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
-    (tmp_path / "run").mkdir()
     offloaded: list[str] = []
 
     async def recording_to_thread(func, /, *args, **kwargs):
@@ -848,7 +848,7 @@ async def test_standby_frame_lives_in_private_runtime_dir_and_is_built_off_loop(
 
     assert result.ok is True
     frame = Path(service._idle_frame_path)  # noqa: SLF001
-    assert frame.parent == tmp_path / "run" / "pixypilot"
+    assert frame.parent == tmp_path / "pixypilot"
     assert (frame.parent.stat().st_mode & 0o777) == 0o700
     assert frame.stat().st_size == 64 * 32 * 2
     assert "_write_standby_frame" in offloaded

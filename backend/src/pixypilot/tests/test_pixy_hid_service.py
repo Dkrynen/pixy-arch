@@ -1,7 +1,9 @@
+import asyncio
 import json
 
 import pytest
 
+import pixypilot.domains.pixy_hid.service as hid_module
 from pixypilot.domains.pixy_hid.models import PixyHidRawQueryResult
 from pixypilot.domains.pixy_hid.service import (
     PixyHidService,
@@ -313,3 +315,89 @@ async def test_target_tracking_uses_pixybar_compatible_report_gap(monkeypatch) -
     assert result.ok is True
     assert writes[0][0][1][8] == 0x03
     assert writes[0][1] == 0.05
+
+
+
+def _vector_service(monkeypatch, timeout: float = 0.05) -> tuple[PixyHidService, list[str]]:
+    monkeypatch.setattr(hid_module, "PTZ_WATCHDOG_TIMEOUT_S", timeout)
+    service = PixyHidService(report_gap_seconds=0)
+    operations: list[str] = []
+
+    async def require_path():
+        return "/dev/hidraw14"
+
+    async def write_reports(path, reports, operation=None, report_gap_seconds=None):
+        operations.append(operation)
+
+    service._require_writable_path = require_path
+    service._write_reports = write_reports
+    return service, operations
+
+
+async def test_ptz_vector_watchdog_stops_abandoned_move(monkeypatch) -> None:
+    service, operations = _vector_service(monkeypatch)
+
+    await service.send_ptz_vector(10.0, 0.0)
+    await asyncio.sleep(0.15)
+
+    assert operations == ["ptz_vector:10.0:0.0:0.0", "ptz_vector:watchdog-stop"]
+    assert not hid_module._PTZ_WATCHDOG.pending  # noqa: SLF001
+
+
+async def test_ptz_vector_heartbeat_and_explicit_stop_disarm_watchdog(monkeypatch) -> None:
+    service, operations = _vector_service(monkeypatch, timeout=0.1)
+
+    for _ in range(4):  # heartbeats every 50ms keep the 100ms watchdog from firing
+        await service.send_ptz_vector(0.0, -5.0)
+        await asyncio.sleep(0.05)
+    await service.send_ptz_vector(0.0, 0.0)
+    await asyncio.sleep(0.2)
+
+    assert "ptz_vector:watchdog-stop" not in operations
+    assert operations[-1] == "ptz_vector:0.0:0.0:0.0"
+    assert not hid_module._PTZ_WATCHDOG.pending  # noqa: SLF001
+
+
+async def test_ptz_watchdog_shutdown_stops_pending_move_now(monkeypatch) -> None:
+    service, operations = _vector_service(monkeypatch, timeout=30.0)
+
+    await service.send_ptz_vector(3.0, 3.0)
+    assert hid_module._PTZ_WATCHDOG.pending  # noqa: SLF001
+    await hid_module.shutdown_ptz_watchdog()
+
+    assert operations[-1] == "ptz_vector:watchdog-stop"
+    assert not hid_module._PTZ_WATCHDOG.pending  # noqa: SLF001
+
+
+def test_hid_trace_rotates_with_one_backup(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(hid_module, "project_root", lambda: tmp_path)
+    monkeypatch.setattr(hid_module, "HID_TRACE_MAX_BYTES", 300)
+    trace = tmp_path / "diagnostics" / "hid" / "pixypilot-hid-trace.jsonl"
+
+    for index in range(40):
+        hid_module._append_hid_trace_event({"event": "write", "operation": f"op-{index}"})  # noqa: SLF001
+
+    backup = trace.with_name(trace.name + ".1")
+    assert trace.exists() and backup.exists()
+    assert trace.stat().st_size < 300 + 200
+    assert backup.stat().st_size < 300 + 200
+    assert sorted(path.name for path in trace.parent.iterdir()) == [trace.name, backup.name]
+    assert json.loads(trace.read_text(encoding="utf-8").splitlines()[-1])["operation"] == "op-39"
+
+
+async def test_saved_diagnostics_use_pixy_arch_prefix(tmp_path, monkeypatch) -> None:
+    service = PixyHidService()
+
+    async def query_raw_all():
+        return []
+
+    async def require_path():
+        return "/dev/hidraw14"
+
+    service.query_raw_all = query_raw_all
+    service._require_writable_path = require_path
+    monkeypatch.setattr(hid_module, "project_root", lambda: tmp_path)
+
+    snapshot = await service.capture_diagnostics(save=True)
+
+    assert snapshot.file_path.split("/")[-1].startswith("pixy-arch-hid-")

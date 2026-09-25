@@ -17,5 +17,6 @@ def validate_device_path(value: str | None, pattern: re.Pattern[str], kind: str)
     if "\x00" in value:
         raise ValueError(f"{kind} path must not contain NUL bytes")
     if not pattern.fullmatch(os.path.realpath(value)):
-        raise ValueError(f"{kind} path must be a {pattern.pattern} device node")
+        expected = pattern.pattern.replace(r"\d+", "N")
+        raise ValueError(f"{kind} path must be a {expected} device node")
     return value

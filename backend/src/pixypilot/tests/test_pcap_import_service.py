@@ -105,3 +105,67 @@ async def test_list_captures_uses_saved_metadata(tmp_path) -> None:
     records = await service.list_captures()
 
     assert {record.id for record in records} == {first.id, second.id}
+
+
+@pytest.mark.asyncio
+async def test_save_capture_stops_at_size_cap_and_removes_partial(tmp_path, monkeypatch) -> None:
+    import pixypilot.domains.pcap_import.service as pcap_module
+
+    monkeypatch.setattr(pcap_module, "MAX_CAPTURE_SIZE_BYTES", 64)
+    service = PcapImportService(root=tmp_path)
+    consumed: list[int] = []
+
+    async def endless():
+        yield PCAP_LE_HEADER
+        while True:
+            consumed.append(1)
+            yield b"\x00" * 32
+
+    with pytest.raises(pcap_module.CaptureTooLargeError):
+        await service.save_capture(filename="huge.pcap", chunks=endless())
+
+    # Streaming stops at the cap instead of reading the whole upload.
+    assert len(consumed) <= 2
+    assert not list((tmp_path / "pcaps" / "imports").glob("*"))
+
+
+def _pcap_app(service: PcapImportService):
+    from fastapi import FastAPI
+
+    from pixypilot.api.routes import router
+    from pixypilot.domains.pcap_import.service import get_pcap_import_service
+
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[get_pcap_import_service] = lambda: service
+    return app
+
+
+@pytest.mark.asyncio
+async def test_upload_route_answers_413_for_oversized_captures(tmp_path, monkeypatch) -> None:
+    import httpx
+
+    import pixypilot.domains.pcap_import.service as pcap_module
+
+    monkeypatch.setattr(pcap_module, "MAX_CAPTURE_SIZE_BYTES", 64)
+    transport = httpx.ASGITransport(app=_pcap_app(PcapImportService(root=tmp_path)))
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+        declared = await client.post(
+            "/api/pcap-imports", params={"filename": "big.pcap"}, content=PCAP_LE_HEADER * 4
+        )
+
+        async def streamed_body():
+            yield PCAP_LE_HEADER
+            yield b"\x00" * 100
+
+        streamed = await client.post(
+            "/api/pcap-imports", params={"filename": "big.pcap"}, content=streamed_body()
+        )
+        small = await client.post(
+            "/api/pcap-imports", params={"filename": "ok.pcap"}, content=PCAP_LE_HEADER
+        )
+
+    assert declared.status_code == 413
+    assert streamed.status_code == 413
+    assert "upload limit" in streamed.json()["detail"]
+    assert small.status_code == 200
