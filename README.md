@@ -8,6 +8,16 @@ Pixy Arch runs a small backend on your computer and opens the deck in a browser 
 
 ![Pixy Arch control deck](docs/images/dashboard.png)
 
+| Pan, tilt, zoom | Image controls | On your phone |
+| --- | --- | --- |
+| ![PTZ controls with drag pad and presets](docs/images/ptz-controls.png) | ![Image controls with presets and looks](docs/images/presets.png) | ![Pixy Arch on a phone](docs/images/mobile.png) |
+
+| Recording | Privacy mode |
+| --- | --- |
+| ![Recording in progress](docs/images/recording.png) | ![Privacy mode with the lens closed](docs/images/privacy.png) |
+
+<sub>Screenshots use a sample preview image.</sub>
+
 ## Features
 
 - **Pan, tilt, zoom**: drag pad with eased speed, direction buttons, recenter, and the camera's native PTZ presets (save, load, clear, power-on default).
