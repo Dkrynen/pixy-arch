@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   errorDetailMessage,
+  fetchStreamError,
   stopAudioMeterKeepalive,
   stopPixyPtzKeepalive,
   updateAutomationSettings,
-  updateSettings
+  updateSettings,
+  uploadPcapImport
 } from "./apiClient";
 
 function jsonResponse(status: number, body: unknown, statusText = ""): Response {
@@ -56,15 +58,46 @@ describe("apiClient requests", () => {
     );
   });
 
-  it("PATCHes automation with only the changed fields", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(200, {}));
-
-    await updateAutomationSettings({ enabled: false });
-
-    expect(fetchSpy).toHaveBeenCalledWith(
-      "/api/automation/settings",
-      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ enabled: false }) })
+  it("surfaces the backend reason when automation settings cannot be saved", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(500, { detail: "automation settings could not be saved: read-only file system" })
     );
+
+    await expect(
+      updateAutomationSettings({
+        enabled: false,
+        video_device: "auto",
+        on_open: "tracking",
+        on_close: "privacy",
+        grace_seconds: 8,
+        poll_seconds: 1,
+        exclude_processes: ["pipewire", "wireplumber"],
+        unmute_mic: true
+      })
+    ).rejects.toThrow("automation settings could not be saved: read-only file system");
+  });
+
+  it("reads the reason for a failed stream and aborts a stream that works", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(503, { detail: "camera stream could not be started: device busy" }))
+      .mockResolvedValueOnce(new Response("frames", { status: 200 }));
+
+    await expect(fetchStreamError("/api/devices/video0/stream?width=1920")).resolves.toBe(
+      "camera stream could not be started: device busy"
+    );
+    await expect(fetchStreamError("/api/devices/video0/stream?width=1920")).resolves.toBeNull();
+    const signal = (fetchSpy.mock.calls[1][1] as RequestInit).signal;
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("shows a readable message for an oversized PCAP upload", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(413, { detail: "capture exceeds the 512 MB upload limit" }, "Payload Too Large")
+    );
+    const file = new File(["x"], "big.pcapng");
+
+    await expect(uploadPcapImport(file)).rejects.toThrow("capture exceeds the 512 MB upload limit");
   });
 
   it("sends safety stops as keepalive requests that never throw", () => {

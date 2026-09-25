@@ -236,6 +236,26 @@ export function videoStreamUrl(
   return `${API_BASE}/api/devices/${encodeURIComponent(deviceName)}/stream?${params.toString()}`;
 }
 
+/**
+ * The preview is an <img>, which hides why a stream request failed. After the
+ * preview gives up, re-request the stream once to read the backend's reason
+ * (422 out-of-range format, 503 setup failure). A stream that answers OK is
+ * aborted at once and reported as `null`.
+ */
+export async function fetchStreamError(url: string): Promise<string | null> {
+  const controller = new AbortController();
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (response.ok) {
+      controller.abort();
+      return null;
+    }
+    return (await errorFromResponse(response)).message;
+  } catch {
+    return null;
+  }
+}
+
 export async function stopVideoStream(deviceName: string): Promise<VideoStreamStopResult> {
   return requestJson<VideoStreamStopResult>(`/api/devices/${encodeURIComponent(deviceName)}/stream/stop`, {
     method: "POST"
@@ -512,12 +532,13 @@ export async function fetchAutomationStatus(): Promise<AutomationStatus> {
   return requestJson<AutomationStatus>("/api/automation/status");
 }
 
-// Sends only the fields being changed; the backend merges them into the
-// current settings so a stale copy here can never overwrite newer values.
-export async function updateAutomationSettings(update: Partial<AutomationSettings>): Promise<AutomationStatus> {
+// The backend replaces (and persists) the whole automation model: omitted
+// fields fall back to defaults, so callers must send a complete settings
+// object (useAutomation builds it from the freshest confirmed state).
+export async function updateAutomationSettings(settings: AutomationSettings): Promise<AutomationStatus> {
   return requestJson<AutomationStatus>("/api/automation/settings", {
     method: "PATCH",
-    body: JSON.stringify(update)
+    body: JSON.stringify(settings)
   });
 }
 

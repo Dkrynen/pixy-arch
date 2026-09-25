@@ -17,8 +17,8 @@ export function AutomationPanel({ automation }: Props) {
     setGraceDraft(null);
   }, [settings?.grace_seconds]);
 
-  // Send only the changed field so a stale copy of the other settings can
-  // never overwrite newer values on the backend.
+  // Pass only the changed field; useAutomation merges it onto the freshest
+  // confirmed settings so a stale copy here can never overwrite newer values.
   const patch = (update: Partial<AutomationSettings>) => {
     if (!settings) return;
     void automation.applySettings(update);

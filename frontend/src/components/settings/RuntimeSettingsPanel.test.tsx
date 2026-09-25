@@ -149,6 +149,22 @@ describe("RuntimeSettingsPanel", () => {
     expect(input).toHaveAttribute("aria-invalid", "true");
   });
 
+  it("validates the Vite host like the bind host and warns when it is exposed", async () => {
+    const user = userEvent.setup();
+    render(<RuntimeSettingsPanel privacySafety={privacySafety()} />);
+
+    await user.click(screen.getByRole("button", { name: "Edit Vite host" }));
+    const input = screen.getByRole("textbox", { name: "Vite host" });
+    await user.clear(input);
+    await user.type(input, "dev-box");
+    expect(screen.getByRole("button", { name: "Save Vite host" })).toBeDisabled();
+
+    await user.clear(input);
+    await user.type(input, "0.0.0.0");
+    expect(screen.getByRole("button", { name: "Save Vite host" })).toBeEnabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/Vite host 0\.0\.0\.0 is not a loopback address/);
+  });
+
   it("only accepts a /dev/hidrawN path or empty for the HID path", async () => {
     const user = userEvent.setup();
     render(<RuntimeSettingsPanel privacySafety={privacySafety()} />);

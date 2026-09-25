@@ -33,10 +33,20 @@ export function RuntimeSettingsPanel({ privacySafety }: Props) {
     return () => window.clearTimeout(timer);
   }, [message]);
 
-  // Warn about the saved bind host, or about a complete draft while editing it.
-  const hostUnderReview =
-    editingId === "server-host" && isValidBindHost(draft) ? draft.trim() : settings?.server.host ?? null;
-  const exposedHost = hostUnderReview !== null && !isLoopbackHost(hostUnderReview) ? hostUnderReview : null;
+  // Warn about a saved host, or about a complete draft while editing it. The
+  // Vite dev server proxies /api, so exposing it exposes the API as well.
+  const exposedHosts = [
+    { id: "server-host", label: "Bind host", saved: settings?.server.host },
+    { id: "vite-host", label: "Vite host", saved: settings?.frontend.dev_server_host }
+  ]
+    .map(({ id, label, saved }) => ({
+      id,
+      label,
+      host: editingId === id && isValidBindHost(draft) ? draft.trim() : saved ?? null
+    }))
+    .filter((entry): entry is { id: string; label: string; host: string } =>
+      entry.host !== null && !isLoopbackHost(entry.host)
+    );
 
   const startEdit = (row: RuntimeSetting) => {
     setEditingId(row.id);
@@ -69,13 +79,13 @@ export function RuntimeSettingsPanel({ privacySafety }: Props) {
         <strong>{settings?.server.url ?? "http://127.0.0.1:8000"}</strong>
         <span>{settings?.frontend.single_port ? "Single address" : "Developer mode"}</span>
       </div>
-      {exposedHost && (
-        <div className="mini-warning bind-host-warning" role="alert">
-          Bind host <code>{exposedHost}</code> is not a loopback address. The API has no authentication:
+      {exposedHosts.map((entry) => (
+        <div key={entry.id} className="mini-warning bind-host-warning" role="alert">
+          {entry.label} <code>{entry.host}</code> is not a loopback address. The API has no authentication:
           anyone who can reach this port on your network could view the camera, record, move it, and
           unmute the mic. Use 127.0.0.1 unless you trust every device on the network.
         </div>
-      )}
+      ))}
       {privacySafety.settingsError && <div className="mini-error">{privacySafety.settingsError}</div>}
       {message && <div className="mini-success">{message}</div>}
       <div className="runtime-list">

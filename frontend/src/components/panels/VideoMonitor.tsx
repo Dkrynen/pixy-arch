@@ -23,6 +23,7 @@ import {
 import type { UsePixyHidResult } from "../../hooks/usePixyHid";
 import type { UseVideoCaptureResult } from "../../hooks/useVideoCapture";
 import type { UseVideoFormatsResult } from "../../hooks/useVideoFormats";
+import { fetchStreamError } from "../../lib/apiClient";
 import "./VideoMonitor.css";
 
 const MAX_STREAM_RETRIES = 4;
@@ -34,9 +35,18 @@ type Props = {
   videoCapture: UseVideoCaptureResult;
   pixyHid: UsePixyHidResult;
   virtualCamRunning?: boolean;
+  /** Injectable for tests; reads the backend's reason for a failed stream. */
+  probeStreamError?: (url: string) => Promise<string | null>;
 };
 
-export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, virtualCamRunning }: Props) {
+export function VideoMonitor({
+  deviceName,
+  videoFormats,
+  videoCapture,
+  pixyHid,
+  virtualCamRunning,
+  probeStreamError = fetchStreamError
+}: Props) {
   const selectedFormat = videoFormats.selectedFormat;
   const canUseVideo = Boolean(deviceName && selectedFormat);
   const isRecording = videoCapture.status?.recording === true;
@@ -44,6 +54,7 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
   const [focusTarget, setFocusTarget] = useState<FocusPoint | null>(null);
   const [streamReady, setStreamReady] = useState(false);
   const [streamFailed, setStreamFailed] = useState(false);
+  const [streamFailureReason, setStreamFailureReason] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [fillFrame, setFillFrame] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -92,7 +103,10 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
       return;
     }
 
-    await pixyHid.setFocusMeteringMode("selected_area", point);
+    if ((await pixyHid.setFocusMeteringMode("selected_area", point)) === false) {
+      // The command failed (reason shown by the HID error strip): no marker.
+      return;
+    }
     setFocusTarget({
       x: ((event.clientX - rect.left) / rect.width) * 100,
       y: ((event.clientY - rect.top) / rect.height) * 100
@@ -125,6 +139,7 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
     retryingRef.current = false;
     setStreamReady(false);
     setStreamFailed(false);
+    setStreamFailureReason(null);
     setStreamDims(null);
     setFocusTarget(null);
     if (reconnectTimerRef.current !== null) {
@@ -181,6 +196,24 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
     []
   );
 
+  // Once retries are exhausted, ask the backend why (e.g. 422 bad format,
+  // 503 camera busy) so the overlay can say more than "no frames".
+  const failedStreamUrl = streamFailed ? videoCapture.streamUrl : null;
+  useEffect(() => {
+    if (!failedStreamUrl) {
+      return;
+    }
+    let cancelled = false;
+    void probeStreamError(failedStreamUrl).then((reason) => {
+      if (!cancelled && reason) {
+        setStreamFailureReason(reason);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [failedStreamUrl, probeStreamError]);
+
   const handleStreamError = () => {
     if (!videoCapture.previewEnabled || reconnectTimerRef.current !== null || streamFailed) {
       return;
@@ -215,6 +248,7 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
   const handleRetryStream = () => {
     retryCountRef.current = 0;
     setStreamFailed(false);
+    setStreamFailureReason(null);
     setStreamReady(false);
     videoCapture.restartPreview();
   };
@@ -358,7 +392,10 @@ export function VideoMonitor({ deviceName, videoFormats, videoCapture, pixyHid, 
               <span className="video-overlay">
                 <Unplug size={26} />
                 <strong>Preview unavailable</strong>
-                <span>The camera did not deliver frames — it may be busy in another app or unplugged.</span>
+                <span>
+                  {streamFailureReason ??
+                    "The camera did not deliver frames — it may be busy in another app or unplugged."}
+                </span>
                 <button type="button" className="secondary-button" onClick={handleRetryStream}>
                   Retry preview
                 </button>

@@ -140,7 +140,7 @@ export function runtimeDraftIsValid(row: RuntimeSetting, draft: string) {
     const min = row.id === "hid-gap" ? 0 : 1;
     return Number.isInteger(parsed) && parsed >= min && parsed <= max;
   }
-  if (row.id === "server-host") {
+  if (row.id === "server-host" || row.id === "vite-host") {
     return isValidBindHost(draft);
   }
   if (row.id === "hid-path") {

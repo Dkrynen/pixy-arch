@@ -11,7 +11,11 @@ export type UseAutomationResult = {
   pending: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  /** PATCHes only the given fields; the backend merges them into its settings. */
+  /**
+   * Changes only the given fields. The PATCH body is those fields merged onto
+   * the freshest server-confirmed settings (plus any PATCH still in flight),
+   * never onto a copy a slow poll may have left behind.
+   */
   applySettings: (update: Partial<AutomationSettings>) => Promise<void>;
 };
 
@@ -22,17 +26,20 @@ export function useAutomation(): UseAutomationResult {
   const [error, setError] = useState<string | null>(null);
   // Every request takes a sequence number. A response is applied only if no
   // newer response has been applied, and polls that overlap a PATCH are
-  // dropped — so a stale poll can never roll the panel back to the settings
-  // the PATCH replaced.
+  // dropped — so a stale poll can never roll the panel (or the base of the
+  // next PATCH) back to the settings a PATCH replaced.
   const requestSeqRef = useRef(0);
   const appliedSeqRef = useRef(0);
   const writesInFlightRef = useRef(0);
+  const confirmedSettingsRef = useRef<AutomationSettings | null>(null);
+  const inFlightUpdatesRef = useRef(new Map<number, Partial<AutomationSettings>>());
 
   const applyStatus = useCallback((seq: number, next: AutomationStatus) => {
     if (seq <= appliedSeqRef.current) {
       return false;
     }
     appliedSeqRef.current = seq;
+    confirmedSettingsRef.current = next.settings;
     setStatus(next);
     return true;
   }, []);
@@ -64,15 +71,28 @@ export function useAutomation(): UseAutomationResult {
 
   const applySettings = useCallback(
     async (update: Partial<AutomationSettings>) => {
+      const confirmed = confirmedSettingsRef.current;
+      if (!confirmed) {
+        setError("Automation settings have not loaded yet");
+        return;
+      }
       const seq = ++requestSeqRef.current;
+      inFlightUpdatesRef.current.set(seq, update);
+      // The backend replaces the whole model, so send a complete body:
+      // confirmed settings, then every in-flight change in request order.
+      const body = [...inFlightUpdatesRef.current.values()].reduce<AutomationSettings>(
+        (merged, change) => ({ ...merged, ...change }),
+        { ...confirmed }
+      );
       writesInFlightRef.current += 1;
       setPending(true);
       setError(null);
       try {
-        applyStatus(seq, await updateAutomationSettings(update));
+        applyStatus(seq, await updateAutomationSettings(body));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to apply automation settings");
       } finally {
+        inFlightUpdatesRef.current.delete(seq);
         writesInFlightRef.current -= 1;
         setPending(writesInFlightRef.current > 0);
       }
